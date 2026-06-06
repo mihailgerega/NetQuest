@@ -40,6 +40,8 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
 ```
 
+`NEXT_PUBLIC_API_BASE_URL` is baked into the browser bundle during the frontend image build. If `PUBLIC_APP_URL` or repository URL changes, rebuild the frontend image with `--build`; a plain container restart is not enough.
+
 The backend container runs migrations before API startup. You can also force migrations:
 
 ```sh

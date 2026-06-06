@@ -67,6 +67,9 @@ services:
     build:
       context: .
       dockerfile: docker/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+        NEXT_PUBLIC_REPOSITORY_URL: ${NEXT_PUBLIC_REPOSITORY_URL:-}
     environment:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
       NEXT_PUBLIC_REPOSITORY_URL: ${NEXT_PUBLIC_REPOSITORY_URL:-}
