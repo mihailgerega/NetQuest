@@ -1,0 +1,2614 @@
+# Техническое задание  
+## Проект: **NetQuest — интерактивный симулятор компьютерных сетей**
+
+**NetQuest** — это современное веб-приложение, в котором пользователь визуально строит компьютерную сеть из узлов, запускает сетевые сценарии и наблюдает, как “пакеты” проходят через DNS, ARP, TCP, TLS, NAT, firewall, proxy, load balancer, router и другие компоненты.
+
+Проект должен выглядеть как современный интерактивный инженерный продукт: часть обучающая платформа, часть network sandbox, часть визуальный симулятор отказоустойчивых распределённых систем.
+
+Главная цель — показать глубокое понимание:
+
+- компьютерных сетей;
+- backend-разработки на Go;
+- безопасности веб-приложений;
+- отказоустойчивой архитектуры;
+- observability;
+- real-time систем;
+- проектирования сложного продукта.
+
+---
+
+# 1. Концепция проекта
+
+## 1.1. Основная идея
+
+Пользователь открывает сайт и попадает в интерактивную рабочую область, похожую на сетевую лабораторию.
+
+Он может:
+
+- перетаскивать на canvas сетевые устройства;
+- соединять их каналами связи;
+- настраивать IP-адреса, маршруты, DNS-записи, firewall-правила;
+- запускать сетевые сценарии;
+- отправлять виртуальные пакеты;
+- видеть каждый этап прохождения пакета;
+- ломать узлы и каналы;
+- наблюдать failover;
+- смотреть логи, трассировку, latency, packet loss;
+- сохранять свои сетевые схемы;
+- запускать готовые обучающие квесты.
+
+Пример сценария:
+
+> Пользователь создаёт клиента, DNS-сервер, firewall, load balancer и три backend-сервиса. Затем отправляет HTTPS-запрос на `api.netquest.local`. Система показывает DNS lookup, TCP handshake, TLS handshake, firewall decision, балансировку нагрузки, прохождение через NAT и ответ сервера. После этого пользователь нажимает “сломать router-1”, и трафик автоматически перестраивается через резервный маршрут.
+
+---
+
+# 2. Цели проекта
+
+## 2.1. Продуктовые цели
+
+Создать веб-приложение, которое:
+
+1. Наглядно объясняет работу компьютерных сетей.
+2. Позволяет моделировать реальные сетевые ситуации.
+3. Показывает отказоустойчивость сетевой инфраструктуры.
+4. Работает стабильно даже при большом количестве одновременных пользователей.
+5. Безопасно обрабатывает пользовательские сценарии.
+6. Выглядит современно, дорого и профессионально.
+7. Может быть использовано как сильный портфолио-проект.
+
+## 2.2. Технические цели
+
+Проект должен демонстрировать:
+
+- Go backend;
+- clean architecture;
+- real-time коммуникацию через WebSocket;
+- event-driven симуляцию;
+- stateless API;
+- PostgreSQL;
+- Redis;
+- NATS или аналогичный message broker;
+- rate limiting;
+- JWT/OAuth2;
+- audit logging;
+- observability;
+- graceful shutdown;
+- health checks;
+- circuit breakers;
+- retry policies;
+- отказоустойчивое хранение состояния;
+- CI/CD;
+- контейнеризацию;
+- production-ready подход.
+
+---
+
+# 3. Целевая аудитория
+
+## 3.1. Основные пользователи
+
+1. **Студенты и junior-разработчики**  
+   Хотят понять, как работают сети.
+
+2. **Backend-разработчики**  
+   Хотят визуально разобраться в DNS, TCP, TLS, load balancing, retries, timeouts.
+
+3. **DevOps/SRE-инженеры**  
+   Хотят моделировать отказоустойчивость, health checks, failover, network chaos.
+
+4. **Преподаватели**  
+   Могут использовать NetQuest как учебный инструмент.
+
+5. **Рекрутеры и технические интервьюеры**  
+   Видят в проекте доказательство глубоких инженерных навыков.
+
+---
+
+# 4. Ключевой вау-эффект
+
+Главная фишка проекта:
+
+> Пользователь может построить сеть, отправить пакет и увидеть его путь в реальном времени: от DNS-запроса до TLS-handshake, firewall decision, routing lookup, NAT, load balancing и ответа сервера.
+
+Вторая фишка:
+
+> Пользователь может сломать узел или канал, после чего система покажет failover, перестроение маршрута и восстановление доступности.
+
+Третья фишка:
+
+> Каждый пакет можно открыть как карточку и увидеть его “жизнь”: где он был, какие решения были приняты, почему firewall его пропустил или заблокировал, какой backend выбрал load balancer и сколько времени занял каждый этап.
+
+---
+
+# 5. Основной функционал
+
+## 5.1. Рабочая область сети
+
+Пользователь должен иметь canvas, где он может создавать сеть.
+
+### Поддерживаемые объекты
+
+Минимальный набор узлов:
+
+1. **Client**
+2. **Server**
+3. **Router**
+4. **Switch**
+5. **DNS Server**
+6. **Firewall**
+7. **Load Balancer**
+8. **Proxy**
+9. **NAT Gateway**
+10. **VPN Gateway**
+11. **Database**
+12. **Internet Cloud**
+13. **Monitoring Node**
+14. **Message Broker**
+15. **Cache Node**
+
+Каждый узел должен иметь:
+
+- уникальный ID;
+- имя;
+- тип;
+- статус: healthy, degraded, down, isolated;
+- IP-адреса;
+- MAC-адреса для L2-сценариев;
+- hostname;
+- конфигурацию;
+- набор интерфейсов;
+- входящие и исходящие соединения;
+- метаданные;
+- координаты на canvas.
+
+---
+
+## 5.2. Соединения между узлами
+
+Пользователь должен соединять узлы каналами связи.
+
+Канал должен иметь:
+
+- ID;
+- source node;
+- target node;
+- bandwidth;
+- latency;
+- jitter;
+- packet loss;
+- status: active, degraded, down;
+- duplex/simplex режим;
+- стоимость маршрута;
+- тип соединения: ethernet, wireless, vpn, wan, internal.
+
+Пример настроек канала:
+
+```json
+{
+  "bandwidthMbps": 100,
+  "latencyMs": 12,
+  "jitterMs": 3,
+  "packetLossPercent": 0.5,
+  "status": "active",
+  "cost": 10
+}
+```
+
+---
+
+# 6. Сетевые механики симуляции
+
+## 6.1. ARP
+
+Система должна уметь симулировать ARP resolution внутри одной L2-сети.
+
+Функции:
+
+- ARP request;
+- ARP reply;
+- ARP cache;
+- cache expiration;
+- MAC lookup;
+- невозможность отправки пакета без MAC-адреса;
+- отображение ARP-событий на timeline.
+
+Пользователь должен видеть:
+
+```text
+Client-1 wants to send packet to 192.168.1.10
+ARP cache miss
+Broadcast ARP request: Who has 192.168.1.10?
+Server-1 replies: 192.168.1.10 is at 02:42:ac:11:00:02
+ARP cache updated
+Packet sent
+```
+
+---
+
+## 6.2. IP routing
+
+Система должна поддерживать routing table lookup.
+
+Функции:
+
+- static routes;
+- default gateway;
+- longest prefix match;
+- route cost;
+- unreachable route;
+- route recomputation после сбоя;
+- TTL decrement;
+- ICMP time exceeded.
+
+Пример таблицы маршрутизации:
+
+```text
+Destination       Gateway         Interface     Cost
+10.0.0.0/24       direct          eth0          0
+172.16.0.0/16     10.0.0.1        eth1          10
+0.0.0.0/0         10.0.0.254      eth0          100
+```
+
+---
+
+## 6.3. ICMP
+
+Должны поддерживаться базовые ICMP-сценарии:
+
+- ping;
+- destination unreachable;
+- time exceeded;
+- packet too big;
+- traceroute-like flow.
+
+UI должен показывать ping как отдельный тип сценария:
+
+```text
+Client-1 → Router-1 → Router-2 → Server-1
+ICMP Echo Request
+ICMP Echo Reply
+RTT: 37ms
+```
+
+---
+
+## 6.4. DNS
+
+DNS-сервер должен поддерживать:
+
+- A records;
+- AAAA records;
+- CNAME;
+- MX;
+- TXT;
+- TTL;
+- cache;
+- NXDOMAIN;
+- SERVFAIL;
+- recursive-like simulation;
+- split-horizon DNS;
+- DNS propagation delay в обучающих сценариях.
+
+Пример DNS-записи:
+
+```json
+{
+  "name": "api.netquest.local",
+  "type": "A",
+  "value": "10.0.2.15",
+  "ttl": 300
+}
+```
+
+Пользователь должен видеть DNS flow:
+
+```text
+Client asks DNS: api.netquest.local
+DNS cache miss
+DNS Server returns A 10.0.2.15 TTL=300
+Client caches result
+```
+
+---
+
+## 6.5. TCP
+
+Система должна симулировать:
+
+- SYN;
+- SYN-ACK;
+- ACK;
+- established connection;
+- FIN;
+- RST;
+- timeout;
+- retransmission;
+- connection refused;
+- dropped SYN;
+- half-open connection.
+
+Timeline TCP-handshake:
+
+```text
+Client → Server: SYN
+Server → Client: SYN-ACK
+Client → Server: ACK
+TCP connection established
+```
+
+---
+
+## 6.6. UDP
+
+UDP должен быть представлен как connectionless flow.
+
+Система должна показывать:
+
+- отсутствие handshake;
+- возможность потери пакета;
+- отсутствие retransmission на транспортном уровне;
+- использование UDP для DNS;
+- использование UDP для VPN-like сценариев.
+
+---
+
+## 6.7. TLS
+
+TLS-механика должна быть симулированной, не настоящей криптографической реализацией.
+
+Должны отображаться этапы:
+
+- ClientHello;
+- ServerHello;
+- certificate check;
+- key exchange simulation;
+- session key established;
+- encrypted application data.
+
+Ошибки TLS:
+
+- expired certificate;
+- hostname mismatch;
+- untrusted CA;
+- unsupported TLS version;
+- handshake timeout.
+
+Пример события:
+
+```text
+TLS certificate validation failed:
+reason: hostname mismatch
+expected: api.netquest.local
+actual: internal.service.local
+```
+
+---
+
+## 6.8. NAT
+
+NAT Gateway должен поддерживать:
+
+- source NAT;
+- destination NAT;
+- port mapping;
+- connection tracking;
+- expired NAT session;
+- private-to-public mapping.
+
+Пример NAT table:
+
+```text
+Private Address        Public Address        Protocol
+10.0.1.15:49152        203.0.113.10:62001    TCP
+10.0.1.16:49153        203.0.113.10:62002    TCP
+```
+
+---
+
+## 6.9. Firewall
+
+Firewall должен уметь принимать решение allow/deny/drop/reject.
+
+Правило firewall:
+
+```json
+{
+  "priority": 100,
+  "action": "allow",
+  "protocol": "tcp",
+  "source": "10.0.1.0/24",
+  "destination": "10.0.2.10/32",
+  "port": 443
+}
+```
+
+Firewall должен поддерживать:
+
+- priority;
+- allow;
+- deny;
+- drop;
+- reject;
+- source CIDR;
+- destination CIDR;
+- protocol;
+- port;
+- stateful rules;
+- default policy;
+- audit log decision.
+
+UI должен объяснять решение:
+
+```text
+Packet matched rule #100:
+ALLOW tcp 10.0.1.0/24 → 10.0.2.10:443
+Decision: allowed
+```
+
+---
+
+## 6.10. Load Balancer
+
+Load Balancer должен поддерживать алгоритмы:
+
+- round-robin;
+- weighted round-robin;
+- least connections;
+- random;
+- consistent hashing;
+- latency-aware;
+- health-check based routing.
+
+Backend pool:
+
+```json
+{
+  "serviceName": "api-service",
+  "algorithm": "least_connections",
+  "backends": [
+    {
+      "nodeId": "server-1",
+      "weight": 1,
+      "healthy": true
+    },
+    {
+      "nodeId": "server-2",
+      "weight": 2,
+      "healthy": true
+    }
+  ]
+}
+```
+
+Должно быть видно:
+
+- какой backend выбран;
+- почему он выбран;
+- состояние каждого backend;
+- активные соединения;
+- ошибки;
+- retries;
+- failover.
+
+---
+
+## 6.11. Proxy
+
+Proxy должен поддерживать:
+
+- forward proxy;
+- reverse proxy;
+- header rewriting;
+- TLS termination simulation;
+- access logs;
+- upstream timeout;
+- retry;
+- cache hit/miss.
+
+---
+
+## 6.12. VPN Gateway
+
+VPN-шлюз должен показывать:
+
+- encapsulation;
+- encrypted tunnel simulation;
+- tunnel status;
+- keepalive;
+- reconnect;
+- route through tunnel;
+- split tunnel;
+- full tunnel.
+
+---
+
+## 6.13. Packet loss, latency, jitter
+
+Каждый канал должен влиять на прохождение пакета.
+
+Симулятор должен учитывать:
+
+- latency;
+- jitter;
+- packet loss;
+- bandwidth;
+- queueing delay;
+- overloaded node;
+- timeout.
+
+Пример:
+
+```text
+Packet entered link router-1 → router-2
+Base latency: 20ms
+Jitter: +4ms
+Packet loss: 2%
+Result: packet delivered in 24ms
+```
+
+---
+
+## 6.14. Failover
+
+Failover — один из центральных сценариев проекта.
+
+Система должна поддерживать:
+
+- ручное отключение узла;
+- ручное отключение канала;
+- автоматическое обнаружение сбоя;
+- health checks;
+- route recomputation;
+- load balancer backend removal;
+- retry на другой backend;
+- degraded mode;
+- восстановление после сбоя.
+
+Пример:
+
+```text
+Router-1 status changed: healthy → down
+Health check failed
+Route via Router-1 removed
+Alternative route found via Router-2
+Traffic restored
+Downtime: 430ms
+```
+
+---
+
+# 7. Режимы работы приложения
+
+## 7.1. Sandbox Mode
+
+Свободный режим.
+
+Пользователь сам строит сеть, настраивает узлы, запускает симуляции.
+
+Функции:
+
+- создать схему;
+- добавить узлы;
+- соединить узлы;
+- настроить параметры;
+- отправить пакет;
+- сломать узел;
+- сохранить схему;
+- экспортировать JSON;
+- импортировать JSON.
+
+---
+
+## 7.2. Quest Mode
+
+Обучающие сценарии.
+
+Примеры квестов:
+
+1. **“Почему не работает сайт?”**  
+   Нужно найти проблему в DNS.
+
+2. **“Firewall блокирует трафик”**  
+   Нужно исправить правило.
+
+3. **“Backend недоступен после падения router-1”**  
+   Нужно настроить резервный маршрут.
+
+4. **“TLS certificate mismatch”**  
+   Нужно исправить hostname сертификата.
+
+5. **“Load balancer отправляет трафик на мёртвый backend”**  
+   Нужно включить health checks.
+
+6. **“NAT не выпускает клиента в интернет”**  
+   Нужно настроить source NAT.
+
+7. **“Packet loop”**  
+   Нужно найти ошибку маршрутизации.
+
+Каждый квест должен иметь:
+
+- описание проблемы;
+- стартовую схему;
+- цель;
+- ограничения;
+- систему проверки;
+- подсказки;
+- финальный отчёт.
+
+---
+
+## 7.3. Demo Mode
+
+Публичный режим без авторизации.
+
+Пользователь может открыть готовые демо-сценарии:
+
+- DNS resolution;
+- TCP handshake;
+- TLS handshake;
+- firewall allow/deny;
+- NAT;
+- load balancing;
+- failover;
+- traceroute;
+- packet loss.
+
+Ограничения demo mode:
+
+- нельзя сохранять приватные проекты;
+- ограниченное число запусков в минуту;
+- ограниченный размер топологии;
+- нельзя импортировать произвольные большие JSON-файлы.
+
+---
+
+## 7.4. Battle Mode / Challenge Mode
+
+Дополнительный режим для вау-эффекта.
+
+Пользователю даётся сломанная сеть, и он должен восстановить связность.
+
+Пример:
+
+> Сделай так, чтобы Client-1 смог получить HTTPS-ответ от api.netquest.local, при этом firewall должен разрешать только порт 443, а backend-2 должен оставаться недоступным напрямую.
+
+Система оценивает:
+
+- корректность;
+- безопасность;
+- минимальность изменений;
+- время решения;
+- количество попыток.
+
+---
+
+# 8. UI/UX требования
+
+## 8.1. Общий стиль
+
+Сайт должен выглядеть современно, технологично и дорого.
+
+Рекомендуемый стиль:
+
+- dark-first интерфейс;
+- глубокий тёмный фон;
+- аккуратные неоновые акценты;
+- glassmorphism только умеренно;
+- минималистичные панели;
+- плавные анимации;
+- техническая типографика;
+- интерактивные графы;
+- real-time визуализация;
+- ощущение network operations center.
+
+Не делать:
+
+- дешёвый “хакерский” стиль с кислотно-зелёным текстом;
+- перегруженный интерфейс;
+- слишком много мигающих элементов;
+- устаревший Bootstrap-like дизайн.
+
+---
+
+## 8.2. Основная структура интерфейса
+
+Экран симулятора должен состоять из следующих зон:
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ Top Bar: logo, project name, run controls, user menu          │
+├───────────────┬───────────────────────────────┬──────────────┤
+│ Node Palette  │                               │ Inspector    │
+│               │        Network Canvas         │              │
+│ Devices       │                               │ Config       │
+│ Protocols     │                               │ Logs         │
+│ Templates     │                               │ Metrics      │
+├───────────────┴───────────────────────────────┴──────────────┤
+│ Timeline: packet events, playback, speed, filters             │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 8.3. Top Bar
+
+Элементы:
+
+- логотип NetQuest;
+- название текущей схемы;
+- статус сохранения;
+- кнопка Run;
+- кнопка Step;
+- кнопка Pause;
+- кнопка Reset;
+- скорость симуляции;
+- кнопка Share;
+- кнопка Export;
+- user menu;
+- индикатор подключения WebSocket.
+
+---
+
+## 8.4. Node Palette
+
+Левая панель.
+
+Содержимое:
+
+- Client;
+- Server;
+- Router;
+- Switch;
+- DNS;
+- Firewall;
+- Load Balancer;
+- Proxy;
+- NAT;
+- VPN;
+- Database;
+- Internet;
+- Monitoring.
+
+Пользователь должен перетаскивать элементы на canvas.
+
+Для каждого элемента нужна иконка, краткое описание и быстрый tooltip.
+
+---
+
+## 8.5. Network Canvas
+
+Центральная зона.
+
+Требования:
+
+- drag-and-drop узлов;
+- соединение узлов линиями;
+- zoom in/out;
+- pan;
+- snap-to-grid;
+- auto-layout;
+- группировка узлов;
+- выделение пути пакета;
+- анимация движения пакета;
+- цветовые статусы;
+- контекстное меню;
+- copy/paste узлов;
+- undo/redo;
+- keyboard shortcuts.
+
+Цветовые состояния:
+
+```text
+healthy   — зелёный/синий акцент
+degraded  — жёлтый
+down      — красный
+isolated  — серый
+selected  — яркая обводка
+active    — пульсация
+```
+
+---
+
+## 8.6. Inspector Panel
+
+Правая панель.
+
+Когда выбран узел, показывать:
+
+- имя;
+- тип;
+- статус;
+- IP/MAC;
+- интерфейсы;
+- routing table;
+- firewall rules;
+- DNS records;
+- NAT table;
+- health checks;
+- metrics;
+- logs.
+
+Когда выбран канал, показывать:
+
+- latency;
+- jitter;
+- packet loss;
+- bandwidth;
+- status;
+- cost;
+- последние пакеты.
+
+Когда выбран пакет, показывать:
+
+- packet ID;
+- protocol;
+- source;
+- destination;
+- current state;
+- route;
+- headers;
+- decision log;
+- timings;
+- error reason.
+
+---
+
+## 8.7. Timeline
+
+Нижняя панель.
+
+Функции:
+
+- список событий;
+- фильтр по протоколам;
+- фильтр по узлам;
+- воспроизведение симуляции;
+- пошаговый режим;
+- перемотка;
+- скорость x0.5 / x1 / x2 / x4;
+- раскрытие события;
+- переход к узлу на canvas.
+
+Пример события:
+
+```text
+[12ms] DNS     Client-1 → DNS-1       Query A api.netquest.local
+[18ms] DNS     DNS-1 → Client-1       Response A 10.0.2.15
+[24ms] TCP     Client-1 → Server-1    SYN
+[37ms] TCP     Server-1 → Client-1    SYN-ACK
+[42ms] TCP     Client-1 → Server-1    ACK
+[55ms] TLS     Client-1 ↔ Server-1    Handshake completed
+[70ms] HTTP    Client-1 → Server-1    GET /health
+```
+
+---
+
+## 8.8. Packet Inspector
+
+Очень важная часть проекта.
+
+Карточка пакета должна показывать:
+
+```text
+Packet #pkt_01JAF7
+Protocol: TCP
+Source: Client-1 10.0.1.10:49152
+Destination: api.netquest.local:443
+Resolved IP: 10.0.2.15
+Status: delivered
+Total latency: 78ms
+
+Path:
+Client-1 → Switch-1 → Router-1 → Firewall-1 → LB-1 → Server-2
+
+Decisions:
+1. DNS cache miss
+2. DNS resolved api.netquest.local → 10.0.2.15
+3. Route matched 10.0.2.0/24 via Router-1
+4. Firewall rule #100 allowed tcp/443
+5. Load balancer selected Server-2 by least_connections
+6. TLS handshake completed
+7. Response delivered
+```
+
+---
+
+## 8.9. Современные frontend-эффекты
+
+Нужно реализовать:
+
+- плавное появление пакетов;
+- подсветку активного маршрута;
+- micro-interactions;
+- command palette;
+- skeleton loading;
+- optimistic UI;
+- toast notifications;
+- keyboard navigation;
+- resizable panels;
+- dark/light theme;
+- responsive layout;
+- сохранение layout пользователя.
+
+---
+
+# 9. Frontend-стек
+
+Рекомендуемый стек:
+
+- **Next.js**
+- **React**
+- **TypeScript**
+- **React Flow** или кастомный canvas/SVG-движок
+- **Zustand** для локального состояния
+- **TanStack Query** для серверного состояния
+- **WebSocket client** для real-time событий
+- **Tailwind CSS**
+- **Framer Motion** для анимаций
+- **Zod** для валидации схем
+- **Monaco Editor** для JSON/YAML-конфигов
+- **D3.js** опционально для графов и метрик
+
+Почему React Flow хорошо подходит:
+
+- быстро даёт drag-and-drop graph UI;
+- поддерживает nodes/edges;
+- можно кастомизировать узлы;
+- есть zoom/pan;
+- можно реализовать интерактивную топологию.
+
+---
+
+# 10. Backend-стек
+
+Основной язык: **Go**.
+
+Рекомендуемый backend:
+
+- Go;
+- net/http или Fiber/Gin/Chi;
+- PostgreSQL;
+- Redis;
+- NATS;
+- WebSocket;
+- OpenTelemetry;
+- Prometheus metrics;
+- structured logging;
+- Goose/Migrate для миграций;
+- SQLC или Ent/GORM для работы с БД;
+- Docker;
+- Kubernetes-ready архитектура.
+
+Предпочтительный подход:
+
+- API Gateway / HTTP API;
+- Simulation Service;
+- WebSocket Gateway;
+- Auth Service;
+- Project Service;
+- Audit Service;
+- Worker Service.
+
+Для портфолио лучше не делать огромный микросервисный зоопарк сразу. Лучше сделать **модульный монолит на Go**, но спроектировать его так, чтобы модули можно было вынести в отдельные сервисы.
+
+---
+
+# 11. Архитектура системы
+
+## 11.1. Высокоуровневая схема
+
+```text
+┌────────────────────┐
+│      Frontend      │
+│ Next.js / React    │
+└─────────┬──────────┘
+          │ HTTPS
+          ▼
+┌────────────────────┐
+│    API Gateway     │
+│ Go HTTP API        │
+└──────┬──────┬──────┘
+       │      │
+       │      ▼
+       │ ┌────────────────────┐
+       │ │ WebSocket Gateway  │
+       │ │ real-time events   │
+       │ └─────────┬──────────┘
+       │           │
+       ▼           ▼
+┌─────────────────────────────┐
+│      Simulation Engine      │
+│ Go event-driven simulator   │
+└──────┬───────────┬──────────┘
+       │           │
+       ▼           ▼
+┌────────────┐  ┌─────────────┐
+│ PostgreSQL │  │ Redis       │
+│ persistence│  │ cache/limits│
+└────────────┘  └─────────────┘
+       │
+       ▼
+┌────────────────────┐
+│ NATS Event Bus      │
+│ async events/jobs   │
+└────────────────────┘
+```
+
+---
+
+## 11.2. Модульная структура backend
+
+```text
+/backend
+  /cmd
+    /api
+    /worker
+    /migrate
+  /internal
+    /auth
+    /users
+    /projects
+    /topology
+    /simulation
+    /protocols
+      /arp
+      /ip
+      /icmp
+      /dns
+      /tcp
+      /udp
+      /tls
+      /nat
+      /firewall
+      /loadbalancer
+      /proxy
+      /vpn
+    /realtime
+    /audit
+    /security
+    /ratelimit
+    /observability
+    /storage
+    /config
+  /pkg
+    /errors
+    /logger
+    /validator
+    /idgen
+```
+
+---
+
+# 12. Simulation Engine
+
+## 12.1. Основная идея движка
+
+Simulation Engine не должен отправлять реальные сетевые пакеты. Это безопасный виртуальный движок, который моделирует сетевые события.
+
+Симуляция должна быть:
+
+- deterministic при одинаковом seed;
+- ограниченной по ресурсам;
+- пошаговой;
+- воспроизводимой;
+- сериализуемой;
+- безопасной;
+- изолированной от хоста.
+
+---
+
+## 12.2. Event-driven модель
+
+Внутри симулятора всё должно быть событием.
+
+Пример событий:
+
+```go
+type EventType string
+
+const (
+    EventPacketCreated      EventType = "packet.created"
+    EventPacketForwarded    EventType = "packet.forwarded"
+    EventPacketDropped      EventType = "packet.dropped"
+    EventDNSQuery           EventType = "dns.query"
+    EventDNSResponse        EventType = "dns.response"
+    EventARPRequest         EventType = "arp.request"
+    EventARPReply           EventType = "arp.reply"
+    EventTCPHandshakeStart  EventType = "tcp.handshake.start"
+    EventTCPHandshakeDone   EventType = "tcp.handshake.done"
+    EventTLSHandshakeStart  EventType = "tls.handshake.start"
+    EventTLSHandshakeDone   EventType = "tls.handshake.done"
+    EventFirewallDecision   EventType = "firewall.decision"
+    EventRouteSelected      EventType = "route.selected"
+    EventLBBackendSelected  EventType = "lb.backend.selected"
+    EventNodeFailed         EventType = "node.failed"
+    EventFailoverTriggered  EventType = "failover.triggered"
+)
+```
+
+Каждое событие должно содержать:
+
+```go
+type SimulationEvent struct {
+    ID            string                 `json:"id"`
+    SimulationID  string                 `json:"simulationId"`
+    Type          EventType              `json:"type"`
+    TimestampMs   int64                  `json:"timestampMs"`
+    SourceNodeID  string                 `json:"sourceNodeId,omitempty"`
+    TargetNodeID  string                 `json:"targetNodeId,omitempty"`
+    PacketID      string                 `json:"packetId,omitempty"`
+    Severity      string                 `json:"severity"`
+    Message       string                 `json:"message"`
+    Details       map[string]any         `json:"details"`
+}
+```
+
+---
+
+## 12.3. Packet model
+
+```go
+type Packet struct {
+    ID              string
+    Protocol        Protocol
+    SourceNodeID    string
+    Destination     Destination
+    SourceIP        string
+    DestinationIP   string
+    SourcePort      int
+    DestinationPort int
+    TTL             int
+    SizeBytes       int
+    State           PacketState
+    Path            []Hop
+    Metadata        map[string]any
+}
+```
+
+---
+
+## 12.4. Simulation run
+
+Пользователь запускает сценарий:
+
+```json
+{
+  "type": "https_request",
+  "sourceNodeId": "client-1",
+  "target": "https://api.netquest.local/users",
+  "method": "GET"
+}
+```
+
+Движок должен:
+
+1. Проверить схему.
+2. Найти client node.
+3. Выполнить DNS resolution.
+4. Выполнить ARP при необходимости.
+5. Построить route.
+6. Пройти firewall.
+7. Выполнить TCP handshake.
+8. Выполнить TLS handshake.
+9. Передать application request.
+10. Пройти load balancer.
+11. Получить ответ от backend.
+12. Вернуть response path.
+13. Сгенерировать timeline событий.
+
+---
+
+## 12.5. Пошаговая симуляция
+
+Должны быть режимы:
+
+- run all;
+- step next;
+- pause;
+- resume;
+- reset;
+- replay;
+- speed control.
+
+Это важно для образовательного эффекта.
+
+---
+
+# 13. Пользовательские сценарии
+
+## 13.1. Сценарий HTTPS-запроса
+
+Пользователь выбирает:
+
+- source client;
+- URL;
+- method;
+- optional headers;
+- timeout;
+- retry policy.
+
+Система показывает:
+
+- DNS;
+- TCP;
+- TLS;
+- HTTP request;
+- firewall;
+- route;
+- load balancing;
+- response.
+
+---
+
+## 13.2. Сценарий Ping
+
+Пользователь выбирает:
+
+- source;
+- destination;
+- packet count;
+- interval;
+- TTL.
+
+Система показывает:
+
+- ICMP echo;
+- RTT;
+- потери;
+- unreachable причины.
+
+---
+
+## 13.3. Сценарий Traceroute
+
+Пользователь выбирает:
+
+- source;
+- destination.
+
+Система отправляет виртуальные пакеты с разным TTL и показывает hops.
+
+---
+
+## 13.4. Сценарий DNS Lookup
+
+Пользователь вводит:
+
+- домен;
+- record type;
+- resolver.
+
+Система показывает:
+
+- cache;
+- DNS record;
+- TTL;
+- NXDOMAIN/SERVFAIL.
+
+---
+
+## 13.5. Сценарий Failure Injection
+
+Пользователь может:
+
+- выключить node;
+- выключить link;
+- добавить latency;
+- добавить packet loss;
+- перегрузить server;
+- сломать DNS;
+- сделать certificate expired;
+- изменить firewall policy.
+
+Система показывает последствия.
+
+---
+
+# 14. Безопасность
+
+Безопасность должна быть встроена в архитектуру, а не добавлена потом.
+
+## 14.1. Главный принцип безопасности
+
+NetQuest — это **симулятор**, а не инструмент для реального сканирования сетей.
+
+Запрещено:
+
+- выполнять реальные DNS-запросы от имени пользователя без строгих ограничений;
+- сканировать IP-адреса;
+- подключаться к произвольным хостам;
+- отправлять реальные пакеты;
+- выполнять пользовательский код на сервере;
+- использовать пользовательские URL для серверных запросов без защиты.
+
+Все сетевые действия должны быть виртуальными.
+
+---
+
+## 14.2. Authentication
+
+Поддержать:
+
+- email/password;
+- OAuth2 через Google/GitHub;
+- JWT access token;
+- refresh token;
+- session revocation;
+- logout from all devices.
+
+Access token:
+
+- короткоживущий;
+- хранится безопасно;
+- используется для API.
+
+Refresh token:
+
+- хранится в httpOnly secure cookie;
+- ротируется;
+- может быть отозван.
+
+---
+
+## 14.3. Authorization
+
+Роли:
+
+```text
+guest
+user
+teacher
+admin
+```
+
+Права:
+
+- guest может смотреть demo;
+- user может создавать проекты;
+- teacher может создавать quest templates;
+- admin может модерировать контент и смотреть audit logs.
+
+Каждый проект должен иметь owner_id.
+
+Проверять доступ на каждом endpoint.
+
+---
+
+## 14.4. Защита API
+
+Обязательные меры:
+
+- HTTPS only;
+- CORS allowlist;
+- CSRF protection для cookie-based операций;
+- rate limiting;
+- request body size limit;
+- input validation;
+- output encoding;
+- SQL injection protection через prepared statements;
+- защита от mass assignment;
+- защита от IDOR;
+- secure headers;
+- audit logging;
+- structured error responses без утечки stack trace.
+
+---
+
+## 14.5. Rate limiting
+
+Нужно иметь несколько уровней лимитов:
+
+```text
+anonymous user:
+  30 requests / minute
+  5 simulations / minute
+
+authenticated user:
+  300 requests / minute
+  30 simulations / minute
+
+project operations:
+  60 writes / minute
+
+WebSocket events:
+  100 inbound messages / minute
+```
+
+Redis использовать для distributed rate limiting.
+
+---
+
+## 14.6. Sandbox simulation limits
+
+Ограничения симуляции:
+
+```text
+max nodes per topology: 100
+max links per topology: 200
+max simulation duration: 30s
+max events per simulation: 10 000
+max packet size: 64 KB
+max concurrent simulations per user: 3
+max JSON import size: 1 MB
+```
+
+Для demo mode ограничения должны быть строже.
+
+---
+
+## 14.7. Валидация topology JSON
+
+Нельзя доверять данным от frontend.
+
+Проверять:
+
+- количество узлов;
+- количество связей;
+- корректность IP;
+- корректность CIDR;
+- отсутствие циклических ссылок в конфиге;
+- допустимые типы узлов;
+- допустимые протоколы;
+- допустимые значения latency/loss/bandwidth;
+- уникальность ID;
+- корректность ссылок node/link.
+
+---
+
+## 14.8. Audit log
+
+Логировать важные действия:
+
+- login;
+- logout;
+- failed login;
+- project created;
+- project deleted;
+- topology imported;
+- simulation started;
+- simulation failed;
+- node failure injected;
+- sharing enabled;
+- admin action.
+
+Audit log должен содержать:
+
+```text
+user_id
+action
+resource_type
+resource_id
+ip_address
+user_agent
+timestamp
+metadata
+```
+
+---
+
+## 14.9. Защита от DoS
+
+Меры:
+
+- rate limiting;
+- request timeout;
+- context cancellation;
+- ограничение размера payload;
+- worker pool;
+- bounded queues;
+- лимит событий симуляции;
+- лимит WebSocket-сообщений;
+- circuit breaker;
+- backpressure;
+- graceful degradation.
+
+---
+
+## 14.10. Secrets management
+
+Не хранить секреты в коде.
+
+Использовать:
+
+- env variables;
+- secret manager в production;
+- отдельные ключи для dev/stage/prod;
+- rotation strategy;
+- запрет логирования секретов.
+
+---
+
+# 15. Отказоустойчивость
+
+## 15.1. Основные требования
+
+Система должна быть спроектирована так, чтобы отказ одного компонента не ломал всё приложение.
+
+Требования:
+
+- stateless API;
+- горизонтальное масштабирование;
+- Redis для cache/rate limit;
+- PostgreSQL как источник истины;
+- NATS для асинхронных событий;
+- graceful shutdown;
+- health checks;
+- readiness/liveness probes;
+- retry with backoff;
+- circuit breakers;
+- idempotency keys;
+- transactional outbox для важных событий;
+- автоматическое восстановление WebSocket-сессии на frontend.
+
+---
+
+## 15.2. Stateless API
+
+API-сервисы не должны хранить пользовательское состояние в памяти.
+
+Состояние хранится:
+
+- PostgreSQL — проекты, пользователи, схемы;
+- Redis — cache, rate limit, temporary simulation state;
+- NATS — event streaming;
+- object storage — экспортированные файлы, если понадобится.
+
+---
+
+## 15.3. Graceful shutdown
+
+При остановке backend должен:
+
+1. Перестать принимать новые запросы.
+2. Завершить текущие HTTP-запросы.
+3. Закрыть WebSocket-сессии корректным сообщением.
+4. Дождаться завершения активных simulation jobs или сохранить их состояние.
+5. Закрыть соединения с БД, Redis, NATS.
+6. Завершиться без потери данных.
+
+---
+
+## 15.4. Health checks
+
+Endpoint:
+
+```text
+GET /health/live
+GET /health/ready
+GET /health/deep
+```
+
+`/health/live`:
+
+- процесс жив.
+
+`/health/ready`:
+
+- доступна БД;
+- доступен Redis;
+- доступен NATS;
+- миграции актуальны.
+
+`/health/deep`:
+
+- проверка записи/чтения в Redis;
+- ping PostgreSQL;
+- publish/consume test event в NATS.
+
+---
+
+## 15.5. Circuit breaker
+
+Использовать для:
+
+- Redis;
+- NATS;
+- external OAuth providers;
+- background workers.
+
+Если Redis недоступен:
+
+- API продолжает работать в degraded mode;
+- rate limit переключается на локальный in-memory лимит;
+- cache отключается;
+- пользователь получает предупреждение только при необходимости.
+
+Если NATS недоступен:
+
+- симуляции можно запускать синхронно в ограниченном режиме;
+- events сохраняются в outbox;
+- после восстановления NATS события публикуются.
+
+---
+
+## 15.6. Idempotency
+
+Для операций создания:
+
+```text
+POST /projects
+POST /simulations
+POST /topologies/import
+```
+
+Поддержать `Idempotency-Key`.
+
+Это защитит от дублирования при retry.
+
+---
+
+## 15.7. WebSocket reconnect
+
+Frontend должен:
+
+- автоматически переподключаться;
+- показывать статус соединения;
+- не терять состояние canvas;
+- после reconnect запрашивать последние события;
+- продолжать replay симуляции.
+
+---
+
+# 16. Observability
+
+## 16.1. Логи
+
+Все backend-логи должны быть structured JSON.
+
+Поля:
+
+```text
+timestamp
+level
+service
+request_id
+user_id
+trace_id
+span_id
+message
+metadata
+```
+
+Не логировать:
+
+- пароли;
+- refresh tokens;
+- access tokens;
+- OAuth secrets;
+- приватные cookie;
+- полные payload с чувствительными данными.
+
+---
+
+## 16.2. Метрики
+
+Prometheus metrics:
+
+```text
+http_requests_total
+http_request_duration_seconds
+http_errors_total
+active_websocket_connections
+simulations_started_total
+simulations_completed_total
+simulations_failed_total
+simulation_duration_seconds
+simulation_events_total
+rate_limit_blocked_total
+db_query_duration_seconds
+redis_errors_total
+nats_publish_errors_total
+```
+
+---
+
+## 16.3. Tracing
+
+Использовать OpenTelemetry.
+
+Trace должен покрывать:
+
+- HTTP request;
+- auth middleware;
+- DB query;
+- Redis operation;
+- simulation run;
+- WebSocket event publish;
+- NATS publish/consume.
+
+---
+
+## 16.4. Admin dashboard
+
+Для admin роли:
+
+- количество пользователей;
+- активные симуляции;
+- ошибки за последние 24 часа;
+- latency API;
+- WebSocket connections;
+- самые тяжёлые проекты;
+- rate limit blocks;
+- audit events.
+
+---
+
+# 17. База данных
+
+## 17.1. Основные таблицы
+
+### users
+
+```sql
+users (
+  id uuid primary key,
+  email text unique not null,
+  password_hash text,
+  display_name text,
+  avatar_url text,
+  role text not null,
+  created_at timestamptz not null,
+  updated_at timestamptz not null,
+  deleted_at timestamptz
+)
+```
+
+### refresh_tokens
+
+```sql
+refresh_tokens (
+  id uuid primary key,
+  user_id uuid not null references users(id),
+  token_hash text not null,
+  user_agent text,
+  ip_address inet,
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  created_at timestamptz not null
+)
+```
+
+### projects
+
+```sql
+projects (
+  id uuid primary key,
+  owner_id uuid not null references users(id),
+  name text not null,
+  description text,
+  visibility text not null,
+  created_at timestamptz not null,
+  updated_at timestamptz not null,
+  deleted_at timestamptz
+)
+```
+
+### topologies
+
+```sql
+topologies (
+  id uuid primary key,
+  project_id uuid not null references projects(id),
+  version int not null,
+  name text not null,
+  data jsonb not null,
+  created_at timestamptz not null,
+  created_by uuid references users(id)
+)
+```
+
+### simulations
+
+```sql
+simulations (
+  id uuid primary key,
+  project_id uuid not null references projects(id),
+  topology_id uuid not null references topologies(id),
+  user_id uuid not null references users(id),
+  status text not null,
+  scenario jsonb not null,
+  seed bigint not null,
+  started_at timestamptz,
+  finished_at timestamptz,
+  error_message text
+)
+```
+
+### simulation_events
+
+```sql
+simulation_events (
+  id uuid primary key,
+  simulation_id uuid not null references simulations(id),
+  sequence_number bigint not null,
+  timestamp_ms bigint not null,
+  type text not null,
+  severity text not null,
+  packet_id text,
+  source_node_id text,
+  target_node_id text,
+  message text not null,
+  details jsonb not null
+)
+```
+
+### audit_logs
+
+```sql
+audit_logs (
+  id uuid primary key,
+  user_id uuid references users(id),
+  action text not null,
+  resource_type text,
+  resource_id text,
+  ip_address inet,
+  user_agent text,
+  metadata jsonb,
+  created_at timestamptz not null
+)
+```
+
+---
+
+# 18. API
+
+## 18.1. Auth API
+
+```text
+POST   /api/v1/auth/register
+POST   /api/v1/auth/login
+POST   /api/v1/auth/oauth/google
+POST   /api/v1/auth/refresh
+POST   /api/v1/auth/logout
+POST   /api/v1/auth/logout-all
+GET    /api/v1/auth/me
+```
+
+---
+
+## 18.2. Projects API
+
+```text
+GET    /api/v1/projects
+POST   /api/v1/projects
+GET    /api/v1/projects/{projectId}
+PATCH  /api/v1/projects/{projectId}
+DELETE /api/v1/projects/{projectId}
+```
+
+---
+
+## 18.3. Topology API
+
+```text
+GET    /api/v1/projects/{projectId}/topologies
+POST   /api/v1/projects/{projectId}/topologies
+GET    /api/v1/topologies/{topologyId}
+POST   /api/v1/topologies/{topologyId}/validate
+POST   /api/v1/topologies/{topologyId}/clone
+POST   /api/v1/topologies/import
+GET    /api/v1/topologies/{topologyId}/export
+```
+
+---
+
+## 18.4. Simulation API
+
+```text
+POST   /api/v1/simulations
+GET    /api/v1/simulations/{simulationId}
+GET    /api/v1/simulations/{simulationId}/events
+POST   /api/v1/simulations/{simulationId}/pause
+POST   /api/v1/simulations/{simulationId}/resume
+POST   /api/v1/simulations/{simulationId}/reset
+DELETE /api/v1/simulations/{simulationId}
+```
+
+---
+
+## 18.5. WebSocket API
+
+```text
+GET /api/v1/ws?projectId=...&simulationId=...
+```
+
+События от сервера:
+
+```json
+{
+  "type": "simulation.event",
+  "simulationId": "sim_123",
+  "event": {
+    "type": "tcp.handshake.start",
+    "timestampMs": 24,
+    "message": "TCP handshake started"
+  }
+}
+```
+
+События от клиента:
+
+```json
+{
+  "type": "simulation.command",
+  "command": "pause"
+}
+```
+
+---
+
+# 19. Frontend страницы
+
+## 19.1. Landing Page
+
+Цель — сразу показать вау-эффект.
+
+Блоки:
+
+1. Hero section с интерактивной мини-сетью.
+2. Кнопка “Запустить демо”.
+3. Видео/анимация прохождения пакета.
+4. Блок “Что можно симулировать”.
+5. Блок “Failover в реальном времени”.
+6. Блок “Для кого”.
+7. Блок “Технологии”.
+8. CTA.
+
+Тон: не учебник, а современный engineering product.
+
+---
+
+## 19.2. Dashboard
+
+Показывает:
+
+- проекты пользователя;
+- последние симуляции;
+- избранные шаблоны;
+- прогресс по квестам;
+- кнопку создания новой сети.
+
+---
+
+## 19.3. Simulator Page
+
+Главная страница продукта.
+
+Содержит:
+
+- canvas;
+- palette;
+- inspector;
+- timeline;
+- packet inspector;
+- run controls;
+- scenario launcher.
+
+---
+
+## 19.4. Quest Page
+
+Показывает:
+
+- список квестов;
+- сложность;
+- темы;
+- статус прохождения;
+- leaderboard опционально.
+
+---
+
+## 19.5. Admin Page
+
+Только для admin.
+
+---
+
+# 20. Готовые шаблоны сетей
+
+Нужно подготовить стартовые templates:
+
+## 20.1. Basic LAN
+
+```text
+Client → Switch → Server
+```
+
+Темы:
+
+- ARP;
+- ping;
+- basic TCP.
+
+---
+
+## 20.2. DNS + Web
+
+```text
+Client → Router → DNS
+              └→ Web Server
+```
+
+Темы:
+
+- DNS;
+- HTTP;
+- TCP.
+
+---
+
+## 20.3. Firewall DMZ
+
+```text
+Client → Router → Firewall → DMZ Web Server
+```
+
+Темы:
+
+- firewall rules;
+- allow/deny;
+- ports.
+
+---
+
+## 20.4. Load Balanced API
+
+```text
+Client → DNS → Load Balancer → API-1
+                            → API-2
+                            → API-3
+```
+
+Темы:
+
+- load balancing;
+- health checks;
+- retries.
+
+---
+
+## 20.5. Multi-router Failover
+
+```text
+Client → Router-A → Router-B → Server
+       → Router-C ───────────┘
+```
+
+Темы:
+
+- route cost;
+- link failure;
+- failover.
+
+---
+
+## 20.6. NAT to Internet
+
+```text
+Private Client → NAT Gateway → Internet → Public Server
+```
+
+Темы:
+
+- private IP;
+- public IP;
+- NAT mapping.
+
+---
+
+## 20.7. Secure Service Mesh Lite
+
+```text
+Frontend → Proxy → Service-A → Service-B → Database
+```
+
+Темы:
+
+- TLS;
+- mTLS simulation;
+- access policies;
+- service-to-service traffic.
+
+---
+
+# 21. Нефункциональные требования
+
+## 21.1. Производительность
+
+Целевые значения:
+
+```text
+API p95 latency: < 200ms
+Simulation start latency: < 500ms
+WebSocket event delivery p95: < 150ms
+Canvas interaction FPS: 50–60 FPS
+Topology load up to 100 nodes: < 1.5s
+```
+
+---
+
+## 21.2. Масштабируемость
+
+Система должна поддерживать:
+
+```text
+10 000 registered users
+1 000 daily active users
+200 concurrent users
+100 concurrent simulations
+10 000 simulation events per minute
+```
+
+Для портфолио это можно не нагружать реально, но архитектура должна быть готова.
+
+---
+
+## 21.3. Доступность
+
+Цель:
+
+```text
+99.5% availability для MVP
+99.9% для production-like версии
+```
+
+---
+
+## 21.4. Совместимость
+
+Браузеры:
+
+- Chrome;
+- Firefox;
+- Safari;
+- Edge.
+
+Устройства:
+
+- desktop — основной приоритет;
+- tablet — базовая поддержка;
+- mobile — просмотр проектов и демо, без полноценного редактирования больших схем.
+
+---
+
+# 22. Тестирование
+
+## 22.1. Backend tests
+
+Обязательно:
+
+- unit tests для simulation engine;
+- unit tests для protocols;
+- unit tests для route lookup;
+- unit tests для firewall rules;
+- unit tests для load balancing algorithms;
+- integration tests для API;
+- integration tests для PostgreSQL;
+- integration tests для Redis;
+- WebSocket tests;
+- security tests.
+
+Цель покрытия:
+
+```text
+simulation engine: 85%+
+critical security logic: 90%+
+overall backend: 70%+
+```
+
+---
+
+## 22.2. Frontend tests
+
+Обязательно:
+
+- unit tests компонентов;
+- tests для state management;
+- tests для canvas interactions;
+- tests для forms validation;
+- e2e tests для ключевых сценариев.
+
+Инструменты:
+
+- Vitest;
+- React Testing Library;
+- Playwright.
+
+---
+
+## 22.3. E2E сценарии
+
+Минимальный набор:
+
+1. Пользователь регистрируется.
+2. Создаёт проект.
+3. Добавляет client и server.
+4. Соединяет их.
+5. Запускает ping.
+6. Видит successful ICMP response.
+7. Добавляет firewall.
+8. Блокирует порт.
+9. Запускает HTTPS request.
+10. Видит denied decision.
+11. Исправляет firewall rule.
+12. Запрос проходит.
+13. Ломает router.
+14. Видит failover.
+
+---
+
+## 22.4. Security testing
+
+Проверить:
+
+- SQL injection;
+- XSS;
+- CSRF;
+- IDOR;
+- JWT tampering;
+- rate limit bypass;
+- oversized payload;
+- malicious topology import;
+- WebSocket spam;
+- unauthorized project access.
+
+---
+
+## 22.5. Load testing
+
+Проверить:
+
+- 100 concurrent users;
+- 1000 simulations in batch;
+- heavy topology with 100 nodes;
+- WebSocket event stream;
+- Redis failure;
+- NATS failure;
+- PostgreSQL slow query simulation.
+
+---
+
+# 23. CI/CD
+
+## 23.1. Pipeline
+
+На каждый pull request:
+
+1. Lint frontend.
+2. Lint backend.
+3. Typecheck frontend.
+4. Unit tests frontend.
+5. Unit tests backend.
+6. Integration tests.
+7. Build Docker images.
+8. Security scan dependencies.
+9. Run migrations check.
+10. Generate test coverage report.
+
+На merge в main:
+
+1. Build production images.
+2. Push images.
+3. Deploy to staging.
+4. Run smoke tests.
+5. Manual approval.
+6. Deploy to production.
+
+---
+
+## 23.2. Environments
+
+```text
+local
+dev
+staging
+production
+```
+
+Каждое окружение должно иметь отдельные:
+
+- database;
+- Redis;
+- secrets;
+- OAuth credentials;
+- domain;
+- monitoring.
+
+---
+
+# 24. Docker и инфраструктура
+
+## 24.1. Docker Compose для local
+
+Сервисы:
+
+```text
+frontend
+backend-api
+postgres
+redis
+nats
+prometheus
+grafana
+jaeger
+```
+
+---
+
+## 24.2. Production-ready deployment
+
+Желательно подготовить:
+
+- Dockerfile frontend;
+- Dockerfile backend;
+- docker-compose.prod.yml;
+- Kubernetes manifests или Helm chart;
+- reverse proxy;
+- TLS;
+- backups;
+- monitoring.
+
+---
+
+# 25. Ошибки и UX обработки ошибок
+
+Ошибки должны быть понятными.
+
+Примеры:
+
+Плохо:
+
+```text
+Internal Server Error
+```
+
+Хорошо:
+
+```text
+Simulation failed: no route from Client-1 to Server-1.
+Check routing table or add a default gateway.
+```
+
+Плохо:
+
+```text
+Validation error
+```
+
+Хорошо:
+
+```text
+Firewall rule #3 has invalid CIDR: 10.0.300.0/24.
+```
+
+---
+
+# 26. Acceptance Criteria
+
+Проект считается успешно реализованным на MVP-уровне, если:
+
+1. Пользователь может зарегистрироваться и войти.
+2. Пользователь может создать проект.
+3. Пользователь может построить сеть на canvas.
+4. Можно добавить минимум 6 типов узлов:
+   - Client;
+   - Server;
+   - Router;
+   - DNS;
+   - Firewall;
+   - Load Balancer.
+5. Можно соединять узлы каналами.
+6. Можно настроить IP, routes, DNS records, firewall rules.
+7. Можно запустить DNS lookup.
+8. Можно запустить ping.
+9. Можно запустить TCP/TLS/HTTP simulation.
+10. Timeline показывает события.
+11. Packet inspector показывает путь и решения.
+12. Можно сломать узел.
+13. Система показывает failover.
+14. Backend написан на Go.
+15. Реализованы JWT/OAuth2, rate limiting, audit log.
+16. Есть PostgreSQL и Redis.
+17. Есть WebSocket real-time events.
+18. Есть health checks.
+19. Есть structured logs.
+20. Есть unit/integration/e2e tests.
+21. UI выглядит современно и не как учебная поделка.
+22. Приложение контейнеризовано.
+23. Есть README с архитектурой и схемами.
+24. Есть demo-сценарии.
+
+---
+
+# 27. Этапы разработки
+
+## Этап 1. Foundation
+
+Задачи:
+
+- создать monorepo;
+- настроить Go backend;
+- настроить Next.js frontend;
+- настроить PostgreSQL;
+- настроить Redis;
+- настроить Docker Compose;
+- сделать auth;
+- сделать базовые projects/topologies API;
+- сделать базовый canvas.
+
+Результат:
+
+> Пользователь может войти, создать проект, добавить узлы на canvas и сохранить топологию.
+
+---
+
+## Этап 2. Simulation Core
+
+Задачи:
+
+- реализовать simulation engine;
+- реализовать event model;
+- реализовать packet model;
+- реализовать IP routing;
+- реализовать ICMP ping;
+- реализовать timeline;
+- реализовать WebSocket streaming.
+
+Результат:
+
+> Пользователь может отправить ping и увидеть путь пакета.
+
+---
+
+## Этап 3. DNS, TCP, TLS
+
+Задачи:
+
+- DNS records;
+- DNS lookup;
+- TCP handshake;
+- TLS handshake simulation;
+- Packet Inspector;
+- пошаговая симуляция.
+
+Результат:
+
+> Пользователь может отправить HTTPS-запрос и увидеть DNS → TCP → TLS → response.
+
+---
+
+## Этап 4. Firewall, NAT, Load Balancer
+
+Задачи:
+
+- firewall rules;
+- firewall decisions;
+- NAT table;
+- load balancing algorithms;
+- health checks;
+- retry policy.
+
+Результат:
+
+> Пользователь может построить production-like схему с firewall, NAT и load balancer.
+
+---
+
+## Этап 5. Failover и Chaos
+
+Задачи:
+
+- failure injection;
+- link down;
+- node down;
+- route recomputation;
+- backend health status;
+- failover visualization;
+- degraded mode.
+
+Результат:
+
+> Пользователь ломает router или backend, а система показывает восстановление трафика.
+
+---
+
+## Этап 6. Security hardening
+
+Задачи:
+
+- rate limiting;
+- audit log;
+- CSRF/CORS;
+- request limits;
+- validation;
+- security headers;
+- WebSocket limits;
+- malicious import protection.
+
+Результат:
+
+> Приложение безопасно против типовых атак и злоупотреблений.
+
+---
+
+## Этап 7. Observability и production-readiness
+
+Задачи:
+
+- Prometheus metrics;
+- OpenTelemetry tracing;
+- Grafana dashboard;
+- health checks;
+- graceful shutdown;
+- load tests;
+- CI/CD;
+- deployment docs.
+
+Результат:
+
+> Проект выглядит как production-ready engineering system.
+
+---
+
+# 28. Что особенно важно показать в портфолио
+
+В README и демо обязательно показать:
+
+1. Архитектуру backend.
+2. Почему симулятор безопасный.
+3. Как работает event-driven engine.
+4. Как реализованы протоколы.
+5. Как работает failover.
+6. Как устроен WebSocket event stream.
+7. Как устроены rate limits.
+8. Как приложение переживает сбои Redis/NATS.
+9. Как запускать проект локально.
+10. Как запустить demo-сценарии.
+11. Скриншоты UI.
+12. Видео прохождения пакета.
+
+---
+
+# 29. Главная формулировка проекта для резюме
+
+Можно описывать так:
+
+> Разработал NetQuest — интерактивный симулятор компьютерных сетей на Go и React, позволяющий визуально моделировать DNS, ARP, TCP, TLS, NAT, firewall rules, load balancing, packet loss и failover. Реализовал event-driven simulation engine, WebSocket real-time streaming, безопасную sandbox-архитектуру, PostgreSQL/Redis/NATS backend, audit logging, rate limiting, observability и отказоустойчивый production-like deployment.
+
+---
+
+# 30. Итоговый MVP scope
+
+Для первой сильной версии нужно сделать не всё сразу, а вот этот набор:
+
+```text
+Auth
+Projects
+Topology editor
+Client / Server / Router / DNS / Firewall / Load Balancer
+Links with latency/loss
+DNS simulation
+ICMP ping
+TCP handshake
+TLS handshake simulation
+Firewall decision
+Routing table lookup
+Load balancing
+Node failure
+Failover
+Timeline
+Packet Inspector
+WebSocket real-time updates
+Audit logs
+Rate limits
+Health checks
+Docker Compose
+Tests
+Modern UI
+```
+
+Этого достаточно, чтобы проект выглядел очень серьёзно.
+
+Главное — не просто сделать “красивый canvas”, а показать инженерную глубину: **каждый пакет должен иметь объяснимый путь, каждое решение должно быть видно, каждый сбой должен иметь последствия, а каждая защита должна быть обоснована архитектурой**.

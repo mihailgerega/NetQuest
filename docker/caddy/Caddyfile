@@ -1,0 +1,12 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode gzip zstd
+
+	@api path /api/* /health/* /metrics
+	reverse_proxy @api backend:8080
+
+	reverse_proxy frontend:3000
+}
