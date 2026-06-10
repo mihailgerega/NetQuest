@@ -37,6 +37,8 @@ const (
 	EventTLSServerHello       EventType = "tls.server_hello"
 	EventTLSCertValidated     EventType = "tls.certificate.validated"
 	EventTLSHandshakeDone     EventType = "tls.handshake.done"
+	EventServerPortOpen       EventType = "server.port.open"
+	EventServerPortClosed     EventType = "server.port.closed"
 	EventLBBackendDiscovered  EventType = "lb.backend.discovered"
 	EventLBBackendSelected    EventType = "lb.backend.selected"
 	EventLBBackendUnhealthy   EventType = "lb.backend.unhealthy"
@@ -171,6 +173,7 @@ type ProtocolDetails struct {
 	Firewall     map[string]any   `json:"firewall,omitempty"`
 	TCP          map[string]any   `json:"tcp,omitempty"`
 	TLS          map[string]any   `json:"tls,omitempty"`
+	Server       map[string]any   `json:"server,omitempty"`
 	LoadBalancer map[string]any   `json:"loadBalancer,omitempty"`
 	Errors       []map[string]any `json:"errors,omitempty"`
 }

@@ -62,8 +62,8 @@ export function demoTopology(): TopologyDocument {
           backends: [{ nodeId: "server-1", enabled: true, weight: 1 }, { nodeId: "server-2", enabled: true, weight: 1 }]
         }
       },
-      { id: "server-1", name: "Server 1", type: "server", status: "healthy", position: { x: 900, y: 135 }, config: { ip: "10.0.2.21", serviceName: "api-1", port: 443 } },
-      { id: "server-2", name: "Server 2", type: "server", status: "healthy", position: { x: 900, y: 305 }, config: { ip: "10.0.2.22", serviceName: "api-2", port: 443 } }
+      { id: "server-1", name: "Server 1", type: "server", status: "healthy", position: { x: 900, y: 135 }, config: { ip: "10.0.2.21", serviceName: "api-1", port: 443, openPorts: [{ protocol: "tcp", port: 443, service: "HTTPS", status: "open" }] } },
+      { id: "server-2", name: "Server 2", type: "server", status: "healthy", position: { x: 900, y: 305 }, config: { ip: "10.0.2.22", serviceName: "api-2", port: 443, openPorts: [{ protocol: "tcp", port: 443, service: "HTTPS", status: "open" }] } }
     ],
     links: [
       { id: "link-client-router", sourceNodeId: "client-1", targetNodeId: "router-1", status: "active", config: { latencyMs: 5, packetLossPercent: 0 } },

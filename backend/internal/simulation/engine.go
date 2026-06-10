@@ -18,6 +18,11 @@ import (
 
 const maxSimulationEvents = 10000
 
+const (
+	httpsProtocol = "tcp"
+	httpsPort     = 443
+)
+
 type SimulationEngine interface {
 	Run(ctx context.Context, req RunRequest) (RunResult, error)
 }
@@ -301,7 +306,10 @@ func (r *runner) runHTTPS(failover bool) {
 		r.emit(EventPacketForwarded, SeverityInfo, "packet retry succeeded", source, destination.ID, r.packetID, map[string]any{"attempt": 2, "path": path})
 	}
 
-	if !r.firewallAllows(path, resolvedIP, 443) {
+	if !r.firewallAllows(path, resolvedIP, httpsPort) {
+		return
+	}
+	if destination.Type == topology.NodeTypeServer && !r.ensureServerPortOpen(destination, httpsProtocol, httpsPort, source, destination.ID) {
 		return
 	}
 
@@ -336,7 +344,7 @@ func (r *runner) runHTTPS(failover bool) {
 		lbStart := r.timestamp
 		lbProcessing := r.processingDelay(1, 5)
 		r.advance(lbProcessing)
-		backend, ok := r.selectBackend(destination, 443)
+		backend, ok := r.selectBackend(destination, httpsPort)
 		if !ok {
 			return
 		}
@@ -484,8 +492,9 @@ func (r *runner) selectBackend(lb topology.Node, port int) (topology.Node, bool)
 			skipped = append(skipped, BackendSkip{NodeID: nodeID, Name: nodeName(node), Reason: "node is down"})
 			continue
 		}
-		if !serverPortMatches(node, port) {
-			skipped = append(skipped, BackendSkip{NodeID: nodeID, Name: nodeName(node), Reason: fmt.Sprintf("server port does not match tcp/%d", port)})
+		portCheck := serverPortCheck(node, httpsProtocol, port)
+		if !portCheck.Open {
+			skipped = append(skipped, BackendSkip{NodeID: nodeID, Name: nodeName(node), Reason: fmt.Sprintf("server port %s/%d is closed", httpsProtocol, port)})
 			continue
 		}
 		if _, _, ok := r.findPath(lb.ID, nodeID); !ok {
@@ -544,6 +553,7 @@ func (r *runner) selectBackend(lb topology.Node, port int) (topology.Node, bool)
 		"healthyBackends":       healthyIDs,
 		"skippedBackends":       skipped,
 	})
+	r.ensureServerPortOpen(selected, httpsProtocol, port, lb.ID, selected.ID)
 	r.summary.Decisions = append(r.summary.Decisions, "Load balancer selected "+nodeName(selected)+": "+reason)
 	return selected, true
 }
@@ -1117,6 +1127,19 @@ func (r *runner) buildProtocolDetails() ProtocolDetails {
 			if event.Type == EventTLSClientHello {
 				details.TLS = mergeProtocolMap(details.TLS, map[string]any{"hostname": event.Details["serverName"]})
 			}
+		case EventServerPortOpen, EventServerPortClosed:
+			details.Server = map[string]any{
+				"nodeId":          event.TargetNodeID,
+				"nodeName":        event.Details["nodeName"],
+				"protocol":        event.Details["protocol"],
+				"port":            event.Details["port"],
+				"open":            event.Details["open"],
+				"implicitOpen":    event.Details["implicitOpen"],
+				"openPorts":       event.Details["openPorts"],
+				"matchedOpenPort": event.Details["matchedOpenPort"],
+				"event":           event.Type,
+				"message":         event.Message,
+			}
 		case EventLBBackendSelected:
 			details.LoadBalancer = map[string]any{
 				"algorithm":             event.Details["algorithm"],
@@ -1259,12 +1282,146 @@ func nodeIP(node topology.Node) string {
 	return ""
 }
 
-func serverPortMatches(node topology.Node, port int) bool {
-	configPort := intValue(node.Config["port"], 0)
-	if configPort == 0 {
-		configPort = intValue(node.Config["servicePort"], 0)
+type serverPort struct {
+	Protocol string `json:"protocol"`
+	Port     int    `json:"port"`
+	Service  string `json:"service,omitempty"`
+	Status   string `json:"status,omitempty"`
+	Source   string `json:"source,omitempty"`
+}
+
+type serverPortCheckResult struct {
+	Open          bool
+	ImplicitOpen  bool
+	RequestedPort int
+	Protocol      string
+	OpenPorts     []serverPort
+	MatchedPort   *serverPort
+}
+
+func (r *runner) ensureServerPortOpen(node topology.Node, protocol string, port int, sourceID, targetID string) bool {
+	check := serverPortCheck(node, protocol, port)
+	details := map[string]any{
+		"nodeId":          node.ID,
+		"nodeName":        nodeName(node),
+		"protocol":        check.Protocol,
+		"port":            check.RequestedPort,
+		"open":            check.Open,
+		"implicitOpen":    check.ImplicitOpen,
+		"openPorts":       check.OpenPorts,
+		"matchedOpenPort": check.MatchedPort,
 	}
-	return configPort == 0 || configPort == port
+	if check.Open {
+		r.emit(EventServerPortOpen, SeverityInfo, "server port is open", sourceID, targetID, r.packetID, details)
+		r.summary.Decisions = append(r.summary.Decisions, fmt.Sprintf("%s listens on %s/%d", nodeName(node), check.Protocol, check.RequestedPort))
+		return true
+	}
+	r.emit(EventServerPortClosed, SeverityError, "server port is closed", sourceID, targetID, r.packetID, details)
+	r.fail(fmt.Sprintf("server does not listen on %s/%d", check.Protocol, check.RequestedPort))
+	return false
+}
+
+func serverPortCheck(node topology.Node, protocol string, port int) serverPortCheckResult {
+	normalizedProtocol := strings.ToLower(strings.TrimSpace(protocol))
+	if normalizedProtocol == "" {
+		normalizedProtocol = "tcp"
+	}
+	ports, explicit := serverOpenPorts(node)
+	if len(ports) == 0 && !explicit {
+		return serverPortCheckResult{Open: true, ImplicitOpen: true, RequestedPort: port, Protocol: normalizedProtocol, OpenPorts: ports}
+	}
+	for i := range ports {
+		item := ports[i]
+		if item.Protocol == normalizedProtocol && item.Port == port && portStatusOpen(item.Status) {
+			return serverPortCheckResult{Open: true, RequestedPort: port, Protocol: normalizedProtocol, OpenPorts: ports, MatchedPort: &item}
+		}
+	}
+	return serverPortCheckResult{Open: false, RequestedPort: port, Protocol: normalizedProtocol, OpenPorts: ports}
+}
+
+func serverOpenPorts(node topology.Node) ([]serverPort, bool) {
+	ports := make([]serverPort, 0)
+	_, hasOpenPorts := node.Config["openPorts"]
+	for _, item := range anySlice(node.Config["openPorts"]) {
+		if parsed, ok := parseServerPort(item, "openPorts"); ok {
+			ports = append(ports, parsed)
+		}
+	}
+	_, hasPorts := node.Config["ports"]
+	for _, item := range anySlice(node.Config["ports"]) {
+		if parsed, ok := parseServerPort(item, "ports"); ok {
+			ports = append(ports, parsed)
+		}
+	}
+	if len(ports) > 0 {
+		return ports, true
+	}
+	if port := intValue(node.Config["port"], 0); port > 0 {
+		ports = append(ports, legacyServerPort(node, port, "port"))
+	}
+	if port := intValue(node.Config["servicePort"], 0); port > 0 {
+		ports = append(ports, legacyServerPort(node, port, "servicePort"))
+	}
+	return ports, hasOpenPorts || hasPorts || len(ports) > 0
+}
+
+func parseServerPort(value any, source string) (serverPort, bool) {
+	if port := intValue(value, 0); port > 0 {
+		return serverPort{Protocol: "tcp", Port: port, Service: wellKnownService(port), Status: "open", Source: source}, true
+	}
+	m := anyMap(value)
+	port := intValue(m["port"], 0)
+	if port <= 0 {
+		return serverPort{}, false
+	}
+	protocol := strings.ToLower(strings.TrimSpace(stringValue(m["protocol"])))
+	if protocol == "" {
+		protocol = "tcp"
+	}
+	service := strings.TrimSpace(stringValue(m["service"]))
+	if service == "" {
+		service = strings.TrimSpace(stringValue(m["name"]))
+	}
+	if service == "" {
+		service = wellKnownService(port)
+	}
+	status := strings.ToLower(strings.TrimSpace(stringValue(m["status"])))
+	if status == "" {
+		status = "open"
+	}
+	return serverPort{Protocol: protocol, Port: port, Service: service, Status: status, Source: source}, true
+}
+
+func legacyServerPort(node topology.Node, port int, source string) serverPort {
+	service := strings.TrimSpace(stringValue(node.Config["serviceName"]))
+	if service == "" {
+		service = wellKnownService(port)
+	}
+	return serverPort{Protocol: "tcp", Port: port, Service: service, Status: "open", Source: source}
+}
+
+func portStatusOpen(status string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(status))
+	return normalized == "" || normalized == "open" || normalized == "active" || normalized == "healthy"
+}
+
+func wellKnownService(port int) string {
+	switch port {
+	case 22:
+		return "SSH"
+	case 53:
+		return "DNS"
+	case 80:
+		return "HTTP"
+	case 443:
+		return "HTTPS"
+	case 5432:
+		return "PostgreSQL"
+	case 6379:
+		return "Redis"
+	default:
+		return ""
+	}
 }
 
 func nodeDown(node topology.Node) bool {
@@ -1415,6 +1572,8 @@ func errorCodeForMessage(message string) string {
 		return "DNS_RECORD_NOT_FOUND"
 	case strings.Contains(message, "Firewall"):
 		return "FIREWALL_DENIED"
+	case strings.HasPrefix(message, "server does not listen on"):
+		return "SERVER_PORT_CLOSED"
 	case message == "Load balancer has no healthy backends available.":
 		return "NO_HEALTHY_BACKENDS"
 	case strings.Contains(message, "topology"):
@@ -1442,6 +1601,8 @@ func errorUserMessage(code string) string {
 		return "DNS record отсутствует."
 	case "FIREWALL_DENIED":
 		return "Firewall заблокировал packet."
+	case "SERVER_PORT_CLOSED":
+		return "Server does not listen on the requested port."
 	case "NO_HEALTHY_BACKENDS":
 		return "Нет доступных healthy backend."
 	default:
@@ -1451,6 +1612,8 @@ func errorUserMessage(code string) string {
 
 func errorSuggestedFix(code string) string {
 	switch code {
+	case "SERVER_PORT_CLOSED":
+		return "Open the requested server port or change the request/backend service port."
 	case "SOURCE_NODE_REQUIRED", "SOURCE_NODE_NOT_FOUND", "SOURCE_NODE_MUST_BE_CLIENT", "SOURCE_NODE_DOWN":
 		return "Проверьте выбранный source Client и его status."
 	case "DESTINATION_NOT_FOUND":

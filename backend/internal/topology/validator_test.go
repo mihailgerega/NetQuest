@@ -123,6 +123,43 @@ func TestStaleBackendReferenceInvalid(t *testing.T) {
 	}
 }
 
+func TestServerOpenPortsMustBeValid(t *testing.T) {
+	payload := json.RawMessage(`{
+		"nodes": [
+			{"id": "server-1", "type": "server", "config": {"openPorts": [{"protocol": "icmp", "port": 443}, {"protocol": "tcp", "port": 70000}]}}
+		],
+		"links": []
+	}`)
+
+	result := NewValidator().ValidateRaw(payload)
+	if result.Valid {
+		t.Fatal("expected topology to be invalid")
+	}
+	if !hasError(result, "nodes[0].config.openPorts[0].protocol", "tcp or udp") {
+		t.Fatalf("expected invalid protocol error, got %#v", result.Errors)
+	}
+	if !hasError(result, "nodes[0].config.openPorts[1].port", "between 1 and 65535") {
+		t.Fatalf("expected invalid port range error, got %#v", result.Errors)
+	}
+}
+
+func TestDuplicateServerOpenPortsInvalid(t *testing.T) {
+	payload := json.RawMessage(`{
+		"nodes": [
+			{"id": "server-1", "type": "server", "config": {"openPorts": [{"protocol": "tcp", "port": 443}, {"protocol": "tcp", "port": 443}]}}
+		],
+		"links": []
+	}`)
+
+	result := NewValidator().ValidateRaw(payload)
+	if result.Valid {
+		t.Fatal("expected topology to be invalid")
+	}
+	if !hasError(result, "nodes[0].config.openPorts[1]", "unique") {
+		t.Fatalf("expected duplicate open port error, got %#v", result.Errors)
+	}
+}
+
 func hasError(result ValidationResult, path, messagePart string) bool {
 	for _, err := range result.Errors {
 		if err.Path == path && strings.Contains(err.Message, messagePart) {

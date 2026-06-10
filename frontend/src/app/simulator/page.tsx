@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ApiError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
-import type { AdvisorIssue, LoadBalancerBackend, Quest, QuestAttempt, QuestCheckResult, SimulationEvent, SimulationSummary, TopologyDocument, TopologyLink, TopologyNode } from "@/lib/api/types";
+import type { AdvisorIssue, LoadBalancerBackend, OpenPort, Quest, QuestAttempt, QuestCheckResult, SimulationEvent, SimulationSummary, TopologyDocument, TopologyLink, TopologyNode } from "@/lib/api/types";
 import { authedClient, getAccessToken, getStoredUser } from "@/lib/auth";
 import { demoTopology, topologySchema } from "@/lib/topology";
 
@@ -40,6 +40,8 @@ const eventTypeLabels: Record<string, string> = {
   "tls.server_hello": "TLS ServerHello",
   "tls.certificate.validated": "TLS certificate проверен",
   "tls.handshake.done": "TLS handshake завершён",
+  "server.port.open": "Server port open",
+  "server.port.closed": "Server port closed",
   "lb.backend.discovered": "Load Balancer обнаружил сервер",
   "lb.backend.selected": "Load Balancer выбрал сервер",
   "lb.backend.unhealthy": "сервер недоступен",
@@ -54,6 +56,12 @@ const eventTypeLabels: Record<string, string> = {
 
 const DEFAULT_DNS_HOSTNAME = "api.netquest.local";
 const DEFAULT_HTTPS_URL = "https://api.netquest.local/users";
+const serverPortPresets: OpenPort[] = [
+  { protocol: "tcp", port: 443, service: "HTTPS", status: "open" },
+  { protocol: "tcp", port: 80, service: "HTTP", status: "open" },
+  { protocol: "tcp", port: 22, service: "SSH", status: "open" },
+  { protocol: "tcp", port: 5432, service: "PostgreSQL", status: "open" }
+];
 
 const paletteGroups: Array<{ id: string; title: string; items: Array<{ type: TopologyNode["type"]; description: string }> }> = [
   { id: "endpoint", title: "Конечные узлы", items: [{ type: "client", description: "Источник DNS, Ping или HTTPS-запроса" }, { type: "server", description: "Принимает Ping или HTTPS-запрос" }] },
@@ -65,7 +73,7 @@ const paletteGroups: Array<{ id: string; title: string; items: Array<{ type: Top
 
 type ScenarioType = "dns_lookup" | "icmp_ping" | "https_request" | "failover_demo";
 type SaveState = "unsaved" | "saving" | "saved" | "running";
-type ProtocolTab = "summary" | "dns" | "routing" | "firewall" | "tcp" | "tls" | "loadBalancer" | "errors";
+type ProtocolTab = "summary" | "dns" | "routing" | "firewall" | "tcp" | "tls" | "server" | "loadBalancer" | "errors";
 
 type LayoutState = {
   left: boolean;
@@ -279,6 +287,11 @@ export default function SimulatorPage() {
           ? "Выбранный Client недоступен. Восстановите его или выберите другой источник."
           : "";
   const sourceNodeForSummary = summary?.sourceNodeId ? topology.nodes.find((node) => node.id === summary.sourceNodeId) : undefined;
+  const summaryServerNode = summary
+    ? topology.nodes.find((node) => node.id === selectedBackendNodeId) ??
+      [...summary.path].reverse().map((nodeId) => topology.nodes.find((node) => node.id === nodeId)).find((node) => node?.type === "server")
+    : undefined;
+  const summaryOpenPorts = summaryServerNode ? getOpenPorts(summaryServerNode) : [];
 
   useEffect(() => {
     setSelectedSourceNodeId((current) => {
@@ -581,6 +594,36 @@ export default function SimulatorPage() {
     const routes = Array.isArray(node.config?.routes) ? [...(node.config?.routes as Record<string, unknown>[])] : [];
     routes.splice(index, 1);
     updateNodeConfig(nodeId, "routes", routes);
+  }
+
+  function updateOpenPort(nodeId: string, index: number, patch: Partial<OpenPort>) {
+    const node = topology.nodes.find((item) => item.id === nodeId);
+    if (!node) return;
+    const ports = getOpenPorts(node);
+    ports[index] = normalizeOpenPort({ ...(ports[index] ?? serverPortPresets[0]), ...patch });
+    setServerOpenPorts(node, ports);
+  }
+
+  function addOpenPort(nodeId: string, preset: OpenPort = serverPortPresets[0]) {
+    const node = topology.nodes.find((item) => item.id === nodeId);
+    if (!node) return;
+    const ports = getOpenPorts(node);
+    const next = normalizeOpenPort(preset);
+    const exists = ports.some((item) => item.protocol === next.protocol && item.port === next.port);
+    setServerOpenPorts(node, exists ? ports : [...ports, next]);
+  }
+
+  function removeOpenPort(nodeId: string, index: number) {
+    const node = topology.nodes.find((item) => item.id === nodeId);
+    if (!node) return;
+    const ports = getOpenPorts(node);
+    ports.splice(index, 1);
+    setServerOpenPorts(node, ports);
+  }
+
+  function setServerOpenPorts(node: TopologyNode, ports: OpenPort[]) {
+    const https = ports.find((item) => item.protocol === "tcp" && item.port === 443 && item.status !== "closed" && item.status !== "filtered");
+    updateNode(node.id, { config: { ...(node.config ?? {}), openPorts: ports, port: https ? 443 : ports[0]?.port ?? 0 } });
   }
 
   function connectTo(nodeId: string) {
@@ -1009,6 +1052,15 @@ export default function SimulatorPage() {
                 >
                   <span className="block truncate px-2">{node.name ?? node.id}</span>
                   <span className="block text-[10px] font-medium opacity-70">{node.type}</span>
+                  {node.type === "server" && (
+                    <span className="mt-0.5 flex justify-center gap-1 px-1 text-[9px] font-semibold">
+                      {getOpenPorts(node).slice(0, 2).map((port) => (
+                        <span className={`rounded border px-1 ${port.status === "open" ? "border-signal-green/40 text-signal-green" : "border-signal-red/40 text-signal-red"}`} key={`${port.protocol}-${port.port}`}>
+                          {port.protocol}/{port.port}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -1048,6 +1100,48 @@ export default function SimulatorPage() {
                   <span className="text-xs text-slate-400">Шлюз по умолчанию</span>
                   <input className="mt-1 h-10 w-full rounded-md border border-white/10 bg-ink-950 px-3" placeholder="10.0.1.1" value={String(selectedNode.config?.defaultGateway ?? "")} onChange={(event) => updateNodeConfig(selectedNode.id, "defaultGateway", event.target.value)} />
                 </label>
+              )}
+              {selectedNode.type === "server" && (
+                <div className="space-y-3 rounded-md border border-white/10 bg-white/[0.04] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="font-semibold">Open ports</h3>
+                    <div className="flex flex-wrap justify-end gap-1">
+                      {serverPortPresets.map((preset) => (
+                        <button className="rounded border border-white/10 px-2 py-1 text-[10px] text-signal-cyan hover:bg-white/[0.06]" key={`${preset.protocol}-${preset.port}`} onClick={() => addOpenPort(selectedNode.id, preset)}>
+                          {preset.service}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {getOpenPorts(selectedNode).length === 0 && (
+                    <p className="rounded-md border border-signal-amber/30 bg-signal-amber/10 px-3 py-2 text-xs text-signal-amber">
+                      {hasExplicitPortModel(selectedNode) ? "No open ports configured. HTTPS tcp/443 will fail when this server is selected." : "No explicit open ports. Legacy topology will accept any service port."}
+                    </p>
+                  )}
+                  {getOpenPorts(selectedNode).map((port, index) => (
+                    <div className="grid gap-2 rounded-md border border-white/10 bg-ink-950 p-2" key={`${port.protocol}-${port.port}-${index}`}>
+                      <div className="grid grid-cols-[70px_1fr_88px] gap-2">
+                        <select className="h-8 rounded-md border border-white/10 bg-ink-900 px-2 text-xs" value={port.protocol} onChange={(event) => updateOpenPort(selectedNode.id, index, { protocol: event.target.value as OpenPort["protocol"] })}>
+                          <option value="tcp">tcp</option>
+                          <option value="udp">udp</option>
+                        </select>
+                        <input className="h-8 rounded-md border border-white/10 bg-ink-900 px-2 text-xs" type="number" min={1} max={65535} value={port.port} onChange={(event) => updateOpenPort(selectedNode.id, index, { port: clampPort(Number(event.target.value) || 443) })} />
+                        <select className="h-8 rounded-md border border-white/10 bg-ink-900 px-2 text-xs" value={port.status ?? "open"} onChange={(event) => updateOpenPort(selectedNode.id, index, { status: event.target.value as OpenPort["status"] })}>
+                          <option value="open">open</option>
+                          <option value="closed">closed</option>
+                          <option value="filtered">filtered</option>
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-[1fr_60px] gap-2">
+                        <input className="h-8 rounded-md border border-white/10 bg-ink-900 px-2 text-xs" placeholder="service name" value={port.service ?? ""} onChange={(event) => updateOpenPort(selectedNode.id, index, { service: event.target.value })} />
+                        <button className="text-xs text-signal-red" onClick={() => removeOpenPort(selectedNode.id, index)}>del</button>
+                      </div>
+                    </div>
+                  ))}
+                  <button className="w-full rounded-md border border-white/10 px-3 py-2 text-xs text-signal-cyan hover:bg-white/[0.06]" onClick={() => addOpenPort(selectedNode.id, { protocol: "tcp", port: 8080, service: "custom", status: "open" })}>
+                    add custom port
+                  </button>
+                </div>
               )}
               {selectedNode.type === "router" && (
                 <div className="space-y-3 rounded-md border border-white/10 bg-white/[0.04] p-3">
@@ -1185,6 +1279,7 @@ export default function SimulatorPage() {
                 <p>Источник: {formatSummarySource(sourceNodeForSummary, summary)}</p>
                 <p>Пакет: {summary.packetId}</p>
                 <p>Resolved IP: {summary.resolvedIp || "n/a"}</p>
+                <p>Service ports: {summaryServerNode ? `${summaryServerNode.name ?? summaryServerNode.id}: ${summaryOpenPorts.length ? summaryOpenPorts.map(formatOpenPort).join(", ") : "no explicit open ports"}` : "n/a"}</p>
                 <p>Backend-сервер: {summary.selectedBackendName || summary.selectedBackendNodeId || summary.selectedBackend || "n/a"}</p>
                 <p>Итоговая задержка: {summary.totalLatencyMs}ms</p>
                 <p>Seed: {summary.seed ?? seed}</p>
@@ -1227,7 +1322,7 @@ export default function SimulatorPage() {
                 <button className="text-xs text-slate-400 hover:text-white" onClick={() => toggleLayout("protocol")}>Скрыть</button>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
-                {(["summary", "dns", "routing", "firewall", "tcp", "tls", "loadBalancer", "errors"] as ProtocolTab[]).map((tab) => (
+                {(["summary", "dns", "routing", "firewall", "tcp", "tls", "server", "loadBalancer", "errors"] as ProtocolTab[]).map((tab) => (
                   <button className={`rounded-md border px-2 py-1 text-xs ${activeProtocolTab === tab ? "border-signal-cyan text-signal-cyan" : "border-white/10 text-slate-300"}`} key={tab} onClick={() => setActiveProtocolTab(tab)}>
                     {protocolTabLabel(tab)}
                   </button>
@@ -1312,12 +1407,57 @@ function getBackends(node: TopologyNode): LoadBalancerBackend[] {
   return Array.isArray(backends) ? (backends as LoadBalancerBackend[]).filter((backend) => backend && typeof backend.nodeId === "string") : [];
 }
 
+function getOpenPorts(node: TopologyNode): OpenPort[] {
+  const raw = node.config?.openPorts;
+  const ports = Array.isArray(raw)
+    ? raw.map((item) => normalizeOpenPort(item)).filter((item): item is OpenPort => Boolean(item))
+    : [];
+  if (ports.length > 0) return ports;
+  const legacyPort = Number(node.config?.port ?? node.config?.servicePort ?? 0);
+  if (Number.isFinite(legacyPort) && legacyPort > 0) {
+    return [{ protocol: "tcp", port: legacyPort, service: String(node.config?.serviceName ?? serviceNameForPort(legacyPort)), status: "open" }];
+  }
+  return [];
+}
+
+function hasExplicitPortModel(node: TopologyNode) {
+  const config = node.config ?? {};
+  return Object.prototype.hasOwnProperty.call(config, "openPorts") || Object.prototype.hasOwnProperty.call(config, "ports") || Object.prototype.hasOwnProperty.call(config, "port") || Object.prototype.hasOwnProperty.call(config, "servicePort");
+}
+
+function normalizeOpenPort(value: unknown): OpenPort {
+  if (typeof value === "number" || typeof value === "string") {
+    const port = clampPort(Number(value) || 443);
+    return { protocol: "tcp", port, service: serviceNameForPort(port), status: "open" };
+  }
+  const item = (value && typeof value === "object" ? value : {}) as Partial<OpenPort>;
+  const protocol = item.protocol === "udp" ? "udp" : "tcp";
+  const port = clampPort(Number(item.port) || 443);
+  const status = item.status === "closed" || item.status === "filtered" ? item.status : "open";
+  const service = item.service || serviceNameForPort(port);
+  return { protocol, port, service, status };
+}
+
+function clampPort(value: number) {
+  if (!Number.isFinite(value)) return 443;
+  return Math.max(1, Math.min(65535, Math.floor(value)));
+}
+
+function serviceNameForPort(port: number) {
+  const names: Record<number, string> = { 22: "SSH", 53: "DNS", 80: "HTTP", 443: "HTTPS", 5432: "PostgreSQL", 6379: "Redis" };
+  return names[port] ?? "custom";
+}
+
+function formatOpenPort(port: OpenPort) {
+  return `${port.protocol}/${port.port}${port.service ? ` ${port.service}` : ""}${port.status && port.status !== "open" ? ` (${port.status})` : ""}`;
+}
+
 function defaultNodeConfig(type: TopologyNode["type"], index: number, id: string): Record<string, unknown> {
   if (type === "load_balancer") {
     return { ip: `10.0.${index}.10`, algorithm: "round_robin", autoDiscoverConnectedServers: true, healthCheckEnabled: true, backends: [] };
   }
   if (type === "server") {
-    return { ip: `10.0.${index}.10`, serviceName: id, port: 443 };
+    return { ip: `10.0.${index}.10`, serviceName: id, port: 443, openPorts: [{ protocol: "tcp", port: 443, service: "HTTPS", status: "open" }] };
   }
   if (type === "dns") {
     return { ip: `10.0.${index}.53`, records: [{ name: DEFAULT_DNS_HOSTNAME, type: "A", value: "10.0.2.10", ttl: 300 }] };
@@ -1506,6 +1646,7 @@ function protocolTabLabel(tab: ProtocolTab) {
     firewall: "Firewall",
     tcp: "TCP",
     tls: "TLS",
+    server: "Server",
     loadBalancer: "Load Balancer",
     errors: "Ошибки"
   };
@@ -1546,6 +1687,8 @@ function translateEventMessage(message: string) {
     "packet dropped by deterministic packet loss": "пакет потерян по детерминированной потере пакетов",
     "ICMP echo reply delivered": "ICMP echo reply доставлен",
     "HTTPS request delivered": "HTTPS-запрос доставлен",
+    "server port is open": "порт сервера открыт",
+    "server port is closed": "порт сервера закрыт",
     "simulation completed": "симуляция завершена",
     "simulation failed": "симуляция завершилась ошибкой",
     "load balancer selected backend": "Load Balancer выбрал сервер",
@@ -1562,6 +1705,7 @@ function translateSkipReason(reason: string) {
     "backend node does not exist": "сервер из пула не существует",
     "backend node is not a server": "узел из пула не является Server",
     "no active path from load balancer": "нет активного пути от Load Balancer",
+    "server port tcp/443 is closed": "Server не слушает tcp/443",
     "backend nodeId is empty": "в пуле есть пустой nodeId"
   };
   return reasons[reason] ?? reason;
@@ -1588,6 +1732,7 @@ function translateSimulationError(message?: string) {
   if (errors[message]) return errors[message];
   if (message.startsWith("no route from")) return "Маршрут не найден.";
   if (message.startsWith("DNS NXDOMAIN")) return "DNS-запись не найдена.";
+  if (message.startsWith("server does not listen on")) return "Server не слушает нужный порт. Откройте tcp/443 в Open ports или выберите другой service port.";
   return message;
 }
 

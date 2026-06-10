@@ -38,7 +38,8 @@ export class ApiError extends Error {
 }
 
 export function createApiClient(options: ClientOptions = {}) {
-  const baseUrl = options.baseUrl ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
+  const configuredBaseUrl = options.baseUrl ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+  const baseUrl = configuredBaseUrl.trim().replace(/\/$/, "");
 
   async function request<T>(path: string, init: RequestOptions = {}): Promise<T> {
     const headers = new Headers(init.headers);
@@ -132,7 +133,8 @@ export function createApiClient(options: ClientOptions = {}) {
       }),
     simulationEvents: (simulationId: string) => request<{ events: SimulationEvent[] }>(`/api/v1/simulations/${simulationId}/events`),
     wsUrl: (simulationId: string, token: string) => {
-      const wsBase = baseUrl.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
+      const origin = baseUrl || (typeof window !== "undefined" ? window.location.origin : "");
+      const wsBase = origin.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
       return `${wsBase}/api/v1/ws?simulationId=${encodeURIComponent(simulationId)}&token=${encodeURIComponent(token)}`;
     }
   };

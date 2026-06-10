@@ -24,6 +24,7 @@ Edit `.env.production`:
 - `DOMAIN`
 - `ACME_EMAIL`
 - `PUBLIC_APP_URL`
+- `NEXT_PUBLIC_API_BASE_URL`
 - `NEXT_PUBLIC_REPOSITORY_URL`
 - `POSTGRES_PASSWORD`
 - `POSTGRES_DSN`
@@ -32,6 +33,18 @@ Edit `.env.production`:
 - `SECURE_COOKIE=true`
 
 Use a long random `JWT_SECRET` and a non-default database password.
+
+For the public deployment on `net-quest.ru`, the browser-facing values should be:
+
+```env
+DOMAIN=net-quest.ru
+PUBLIC_APP_URL=https://net-quest.ru
+NEXT_PUBLIC_API_BASE_URL=https://net-quest.ru
+CORS_ALLOWED_ORIGINS=https://net-quest.ru
+SECURE_COOKIE=true
+```
+
+Do not use `docker-compose.yml` on the VPS for production. It is the local development file and can build the browser bundle for `localhost`.
 
 ## Run
 

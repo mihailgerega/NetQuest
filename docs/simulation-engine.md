@@ -45,6 +45,10 @@ Route строится по активным links и состояниям nodes
 
 Firewall проверяет трафик по протоколу, порту, источнику и назначению. Первое подходящее правило определяет действие. Если трафик заблокирован, simulation завершается событием с ошибкой и сохраняет частичный путь.
 
+## Server open ports
+
+Для HTTPS после DNS, route и Firewall backend проверяет порт выбранного Server. Новая модель использует `config.openPorts[]`; старые `config.port` и `config.servicePort` остаются совместимыми и считаются legacy-open port. Если Server не слушает нужный порт, engine создаёт `server.port.closed`, добавляет details в Protocol Inspector → Server и завершает simulation ошибкой `server does not listen on tcp/443`. Если порт открыт, Timeline получает `server.port.open`.
+
 ## Load Balancer
 
 Load Balancer выбирает backend только из актуального пула:

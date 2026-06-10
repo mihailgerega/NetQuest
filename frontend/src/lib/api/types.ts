@@ -40,6 +40,13 @@ export type TopologyNode = {
   config?: Record<string, unknown>;
 };
 
+export type OpenPort = {
+  protocol: "tcp" | "udp";
+  port: number;
+  service?: string;
+  status?: "open" | "closed" | "filtered";
+};
+
 export type LoadBalancerBackend = {
   nodeId: string;
   weight?: number;

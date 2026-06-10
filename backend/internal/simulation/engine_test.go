@@ -224,6 +224,50 @@ func TestLBReportsSkippedBackends(t *testing.T) {
 	}
 }
 
+func TestDirectServerRequiresOpenHTTPSPort(t *testing.T) {
+	result := runScenario(t, Scenario{Type: "https_request", SourceNodeID: "client-1", Target: "https://api.netquest.local/users"}, directServerTopology(`[{"protocol":"tcp","port":443,"service":"HTTPS","status":"open"}]`))
+	if result.Status != StatusCompleted {
+		t.Fatalf("expected completed status, got %s: %#v", result.Status, result.Summary.Errors)
+	}
+	if !hasEvent(result, EventServerPortOpen) {
+		t.Fatalf("expected server.port.open event")
+	}
+	if result.Summary.ProtocolDetails.Server["open"] != true {
+		t.Fatalf("expected protocol details to report open port: %#v", result.Summary.ProtocolDetails.Server)
+	}
+}
+
+func TestDirectServerClosedHTTPSPortFails(t *testing.T) {
+	result := runScenario(t, Scenario{Type: "https_request", SourceNodeID: "client-1", Target: "https://api.netquest.local/users"}, directServerTopology(`[{"protocol":"tcp","port":80,"service":"HTTP","status":"open"}]`))
+	if result.Status != StatusFailed {
+		t.Fatalf("expected failed status, got %s", result.Status)
+	}
+	if !hasEvent(result, EventServerPortClosed) {
+		t.Fatalf("expected server.port.closed event")
+	}
+	if len(result.Summary.Errors) == 0 || result.Summary.Errors[0] != "server does not listen on tcp/443" {
+		t.Fatalf("unexpected error: %#v", result.Summary.Errors)
+	}
+	if result.Summary.ProtocolDetails.Server["open"] != false {
+		t.Fatalf("expected protocol details to report closed port: %#v", result.Summary.ProtocolDetails.Server)
+	}
+}
+
+func TestLBSkipsBackendWithClosedHTTPSPort(t *testing.T) {
+	topologyJSON := strings.Replace(demoTopologyWithServer3(), `"id":"server-1","type":"server","config":{"ip":"10.0.2.21","port":443}`, `"id":"server-1","type":"server","config":{"ip":"10.0.2.21","openPorts":[{"protocol":"tcp","port":80,"service":"HTTP","status":"open"}]}`, 1)
+	topologyJSON = strings.Replace(topologyJSON, `"id":"server-2","type":"server","config":{"ip":"10.0.2.22","port":443}`, `"id":"server-2","type":"server","status":"down","config":{"ip":"10.0.2.22","port":443}`, 1)
+	result := runScenario(t, Scenario{Type: "https_request", SourceNodeID: "client-1", Target: "https://api.netquest.local/users"}, topologyJSON)
+	if result.Status != StatusCompleted {
+		t.Fatalf("expected completed status, got %s: %#v", result.Status, result.Summary.Errors)
+	}
+	if result.Summary.SelectedBackendNodeID != "server-3" {
+		t.Fatalf("expected server-3, got %s", result.Summary.SelectedBackendNodeID)
+	}
+	if !skipReasonContains(result.Summary.SkippedBackends, "server-1", "server port tcp/443 is closed") {
+		t.Fatalf("expected server-1 skipped for closed port, got %#v", result.Summary.SkippedBackends)
+	}
+}
+
 func TestBrokenLinkForcesAlternativeBackend(t *testing.T) {
 	broken := strings.Replace(demoTopology(), `"id":"l5","sourceNodeId":"lb-1","targetNodeId":"server-1","config":{"latencyMs":4}`, `"id":"l5","sourceNodeId":"lb-1","targetNodeId":"server-1","status":"down","config":{"latencyMs":4}`, 1)
 	result := runScenario(t, Scenario{Type: "https_request", SourceNodeID: "client-1", Target: "https://api.netquest.local/users"}, broken)
@@ -379,6 +423,15 @@ func stringIn(items []string, want string) bool {
 	return false
 }
 
+func skipReasonContains(items []BackendSkip, nodeID, reason string) bool {
+	for _, item := range items {
+		if item.NodeID == nodeID && strings.Contains(item.Reason, reason) {
+			return true
+		}
+	}
+	return false
+}
+
 type routeTableOptions struct {
 	RouteB     string
 	RouteC     string
@@ -411,6 +464,24 @@ func routeTableTopology(options routeTableOptions) string {
 			{"id":"l-c-server","sourceNodeId":"router-c","targetNodeId":"server-1","config":{"latencyMs":4}}
 		]
 	}`, options.RouteB, options.RouteC, linkBStatus, linkCLatency)
+}
+
+func directServerTopology(openPorts string) string {
+	return fmt.Sprintf(`{
+		"nodes": [
+			{"id":"client-1","type":"client","config":{"ip":"10.0.1.10"}},
+			{"id":"dns-1","type":"dns","config":{"ip":"10.0.1.53","records":[{"name":"api.netquest.local","type":"A","value":"10.0.2.21","ttl":300}]}},
+			{"id":"router-1","type":"router","config":{"ip":"10.0.1.1"}},
+			{"id":"firewall-1","type":"firewall","config":{"ip":"10.0.1.254","defaultPolicy":"deny","rules":[{"priority":100,"action":"allow","protocol":"tcp","source":"10.0.1.0/24","destination":"10.0.2.21/32","port":443}]}},
+			{"id":"server-1","type":"server","config":{"ip":"10.0.2.21","openPorts":%s}}
+		],
+		"links": [
+			{"id":"l1","sourceNodeId":"client-1","targetNodeId":"router-1","config":{"latencyMs":5}},
+			{"id":"l2","sourceNodeId":"client-1","targetNodeId":"dns-1","config":{"latencyMs":2}},
+			{"id":"l3","sourceNodeId":"router-1","targetNodeId":"firewall-1","config":{"latencyMs":8}},
+			{"id":"l4","sourceNodeId":"firewall-1","targetNodeId":"server-1","config":{"latencyMs":12}}
+		]
+	}`, openPorts)
 }
 
 func demoTopology() string {

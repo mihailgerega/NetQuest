@@ -22,6 +22,8 @@
 
 **Пример:** выключите Server-1 и проверьте, будет ли выбран Server-2 или Server-3.
 
+**Open ports:** Server может задавать `config.openPorts`, например `[{ "protocol": "tcp", "port": 443, "service": "HTTPS", "status": "open" }]`. Эти порты показываются на canvas и в Inspector. Во время HTTPS simulation backend проверяет, что выбранный Server слушает `tcp/443`; если порт закрыт или отсутствует, Timeline получает `server.port.closed`, а simulation завершается ошибкой `server does not listen on tcp/443`.
+
 ## DNS
 
 **Что это:** виртуальный DNS-сервер с A-записями.

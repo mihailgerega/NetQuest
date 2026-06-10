@@ -38,6 +38,9 @@ assertContains("src/app/simulator/page.tsx", "По размеру", "Canvas fit-
 assertContains("src/app/simulator/page.tsx", "Сброс", "Canvas reset control is missing");
 assertContains("src/app/simulator/page.tsx", "Инспектор пакета", "Packet inspector label is not localized");
 assertContains("src/app/simulator/page.tsx", "Протокольный разбор", "Protocol inspector label is not localized");
+assertContains("src/app/simulator/page.tsx", "Open ports", "Server open ports inspector is missing");
+assertContains("src/app/simulator/page.tsx", "server.port.closed", "Server closed-port timeline event is missing");
+assertContains("src/app/simulator/page.tsx", "Service ports", "Packet inspector should show selected server ports");
 assertNotContains("src/app/simulator/page.tsx", "Break Backend", "Old hardcoded break backend action leaked back");
 assertNotContains("src/app/simulator/page.tsx", "link-lb-server-1", "Simulator still references demo link hardcode");
 

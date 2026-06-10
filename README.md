@@ -39,7 +39,7 @@ NetQuest — учебный симулятор компьютерных сете
 Скопируйте пример переменных окружения:
 
 ```powershell
-Copy-Item .env.example .env
+сp .env.example .env
 ```
 
 Запустите сервисы:
@@ -47,6 +47,8 @@ Copy-Item .env.example .env
 ```powershell
 docker compose up --build
 ```
+
+Если Docker падает на `failed to fetch anonymous token` или нужно временно проверить всё через `localhost`, используйте [docs/local-development.md](docs/local-development.md).
 
 Откройте:
 
@@ -90,6 +92,8 @@ Access token хранится на frontend, а refresh token выдаётся �
 - failover добавляет overhead и показывает, какие серверы были исключены.
 
 Load Balancer выбирает сервер только из актуального пула. Сервер считается доступным, если он существует, имеет тип `server`, включён в пул, не выключен, имеет подходящий порт и reachable path через активные links. Если все серверы недоступны, симуляция завершается понятной ошибкой.
+
+Server nodes теперь могут показывать открытые порты через `config.openPorts[]`. Для HTTPS backend проверяет `tcp/443`: если route и Firewall настроены правильно, но выбранный Server не слушает этот порт, Timeline показывает `server.port.closed`, а Packet/Protocol Inspector объясняет причину.
 
 Перед запуском frontend автоматически сохраняет текущую топологию. Это защищает от stale topology: backend симулирует именно свежую сохранённую версию.
 
