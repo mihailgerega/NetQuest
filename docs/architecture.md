@@ -19,18 +19,41 @@ Simulator хранит локальное состояние рабочего п
 
 ## Backend
 
-Backend написан на Go.
+Backend написан на Go и разложен по слоям: запрос идёт сверху вниз, а зависимости
+объявлены интерфейсами у потребителя (`deps.go` в каждом пакете).
 
-Основные модули:
+```text
+cmd/api, cmd/migrate        точки входа: конфиг → app; CLI миграций
+internal/app                DI-контейнер (di.go), маршруты (router.go), жизненный цикл и graceful shutdown
+internal/middleware         RequestID, Recover, security headers, CORS, лимит тела, таймаут, лог, RequireAuth
+internal/api/<домен>/v1     HTTP-хендлеры: разбор запроса → сервис → ответ
+internal/contract/<домен>/v1  JSON-контракт запросов и ответов API
+internal/api/converter      контракт ↔ input сервиса и модели
+internal/service/application  сервисы: auth, project, topology, simulation, quest, advisor, audit, health
+internal/service/domain     доменная логика без ввода-вывода: validator, engine (Simulation Engine),
+                            checker (проверка квестов), catalog (каталог упражнений)
+internal/repository/<домен> SQL поверх pgx; record — строки таблиц, converter — строки → модели
+internal/producer           публикация событий симуляции в NATS
+internal/model              доменные модели
+internal/errors (errs)      доменные ошибки; в HTTP-коды их переводит только httpx.WriteError
+internal/httpx, ratelimit, metrics, security, config
+pkg/closer, logger, nats, migrator, postgres, idgen   переиспользуемая инфраструктура
+```
 
-- `auth` — регистрация, login, demo login, refresh/logout;
-- `projects` — проекты и версии topology;
-- `topology` — normalization и validation;
-- `simulation` — расчёт виртуальных событий, задержки, пути и failover;
-- `advisor` — диагностика topology до запуска;
-- `quests` — каталог упражнений, попытки, hints и checker;
-- `realtime` — stream событий с fallback на polling;
-- `security` — базовые security headers.
+Поток запроса на примере запуска симуляции:
+
+```text
+HTTP POST /api/v1/simulations
+→ middleware (RequestID … RateLimit, Metrics) → RequireAuth (JWT → Principal в ctx)
+→ api/simulation/v1.Start: JSON → simulationv1.StartRequest → input.StartSimulationInput
+→ service/application/simulation.Start: проверка проекта и версии → строка simulations
+→ domain/engine.Run (валидация, события, сводка) → repository: события и итог → NATS
+→ converter → simulationv1.StartResponse → 201
+```
+
+Тесты лежат в подкаталогах `tests/` рядом с пакетами и используют testify; моки
+интерфейсов из `deps.go` генерирует mockery (`.mockery.yaml`) в подкаталоги `mocks/`.
+Стиль кода проверяет golangci-lint (`backend/.golangci.yml`).
 
 ## Данные
 

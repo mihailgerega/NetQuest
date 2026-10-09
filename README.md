@@ -127,9 +127,12 @@ Backend:
 cd backend
 go test ./...
 go vet ./...
+golangci-lint run ./...
 go build ./cmd/api
 go build ./cmd/migrate
 ```
+
+После изменения интерфейсов в `deps.go` моки перегенерируются командой `mockery` из каталога `backend`.
 
 Frontend:
 
